@@ -3,7 +3,6 @@ from time import perf_counter
 
 from pico2d import (
     SDL_KEYDOWN,
-    SDL_KEYUP,
     SDL_QUIT,
     SDLK_DOWN,
     SDLK_ESCAPE,
@@ -24,8 +23,8 @@ from pico2d import (
 )
 
 
-SCREEN_WIDTH = 960
-SCREEN_HEIGHT = 640
+SCREEN_WIDTH = 1600
+SCREEN_HEIGHT = 900
 TILE_SIZE = 64
 MAP = (
     "###############",
@@ -39,9 +38,10 @@ MAP = (
     "#.............#",
     "###############",
 )
-PLAYER_START = (2.5 * TILE_SIZE, 1.5 * TILE_SIZE)
-PLAYER_RADIUS = 13
-PLAYER_SPEED = 240
+MAP_OFFSET_X = (SCREEN_WIDTH - len(MAP[0]) * TILE_SIZE) // 2
+MAP_OFFSET_Y = (SCREEN_HEIGHT - len(MAP) * TILE_SIZE) // 2
+PLAYER_START = (2, 1)
+WALK_ANIMATION_DURATION = 0.24
 SPRITE_FRAME_SIZE = 320
 SPRITE_ROWS = {
     "down": 3 * SPRITE_FRAME_SIZE,
@@ -61,22 +61,17 @@ KEY_DIRECTIONS = {
 }
 
 
-def is_blocked(x: float, y: float, radius: float = PLAYER_RADIUS) -> bool:
-    """Return whether the player's collision box overlaps a wall or obstacle."""
-    for corner_x in (x - radius, x + radius):
-        for corner_y in (y - radius, y + radius):
-            column = int(corner_x // TILE_SIZE)
-            row = len(MAP) - 1 - int(corner_y // TILE_SIZE)
-            if not (0 <= row < len(MAP) and 0 <= column < len(MAP[row])):
-                return True
-            if MAP[row][column] in "#O":
-                return True
-    return False
+def is_blocked(column: int, row_from_bottom: int) -> bool:
+    """Return whether a tile coordinate is outside the map or not walkable."""
+    row = len(MAP) - 1 - row_from_bottom
+    if not (0 <= row < len(MAP) and 0 <= column < len(MAP[row])):
+        return True
+    return MAP[row][column] in "#O"
 
 
 def draw_tile(column: int, row: int, tile: str) -> None:
-    x = column * TILE_SIZE
-    y = (len(MAP) - row - 1) * TILE_SIZE
+    x = MAP_OFFSET_X + column * TILE_SIZE
+    y = MAP_OFFSET_Y + (len(MAP) - row - 1) * TILE_SIZE
     draw_rectangle(x, y, x + TILE_SIZE, y + TILE_SIZE, 12, 24, 42, filled=True)
 
     if tile == "#":
@@ -134,10 +129,10 @@ def main() -> None:
     sprite = load_image(
         str(Path(__file__).resolve().parents[1] / "assets" / "player_sprite.png")
     )
-    player_x, player_y = PLAYER_START
+    player_column, player_row = PLAYER_START
     facing = "down"
-    held_keys: set[int] = set()
     animation_time = 0.0
+    walking_time = 0.0
     previous_time = perf_counter()
     running = True
 
@@ -153,41 +148,33 @@ def main() -> None:
                 if event.key == SDLK_ESCAPE:
                     running = False
                 elif event.key in KEY_DIRECTIONS:
-                    held_keys.add(event.key)
-            elif event.type == SDL_KEYUP and event.key in KEY_DIRECTIONS:
-                held_keys.discard(event.key)
+                    move_x, move_y = KEY_DIRECTIONS[event.key]
+                    facing = (
+                        "right" if move_x > 0 else
+                        "left" if move_x < 0 else
+                        "up" if move_y > 0 else
+                        "down"
+                    )
+                    next_column = player_column + move_x
+                    next_row = player_row + move_y
+                    if not is_blocked(next_column, next_row):
+                        player_column = next_column
+                        player_row = next_row
+                        walking_time = WALK_ANIMATION_DURATION
 
-        move_x = sum(KEY_DIRECTIONS[key][0] for key in held_keys)
-        move_y = sum(KEY_DIRECTIONS[key][1] for key in held_keys)
-        is_moving = move_x != 0 or move_y != 0
-
-        if is_moving:
-            length = (move_x**2 + move_y**2) ** 0.5
-            move_x /= length
-            move_y /= length
-            next_x = player_x + move_x * PLAYER_SPEED * delta_time
-            next_y = player_y + move_y * PLAYER_SPEED * delta_time
-
-            if not is_blocked(next_x, player_y):
-                player_x = next_x
-            if not is_blocked(player_x, next_y):
-                player_y = next_y
-
-            if abs(move_x) > abs(move_y):
-                facing = "right" if move_x > 0 else "left"
-            elif move_y != 0:
-                facing = "up" if move_y > 0 else "down"
+        if walking_time > 0:
             animation_time += delta_time
+            walking_time = max(0.0, walking_time - delta_time)
 
         draw_map()
-        frame = int(animation_time * 8) % 4 if is_moving else 0
+        frame = int(animation_time * 12) % 4 if walking_time > 0 else 0
         sprite.clip_draw(
             frame * SPRITE_FRAME_SIZE,
             SPRITE_ROWS[facing],
             SPRITE_FRAME_SIZE,
             SPRITE_FRAME_SIZE,
-            player_x,
-            player_y,
+            MAP_OFFSET_X + (player_column + 0.5) * TILE_SIZE,
+            MAP_OFFSET_Y + (player_row + 0.5) * TILE_SIZE,
             TILE_SIZE,
             TILE_SIZE,
         )
