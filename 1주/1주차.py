@@ -1,7 +1,9 @@
+from os import environ
 from pathlib import Path
 from time import perf_counter
 
 from pico2d import (
+    Font,
     SDL_KEYDOWN,
     SDL_KEYUP,
     SDL_QUIT,
@@ -18,6 +20,7 @@ from pico2d import (
     clear_canvas,
     draw_rectangle,
     get_events,
+    load_font,
     load_image,
     open_canvas,
     update_canvas,
@@ -46,7 +49,13 @@ TILE_WIDTH = SCREEN_WIDTH / len(MAP[0])
 TILE_HEIGHT = SCREEN_HEIGHT / len(MAP)
 MAP_OFFSET_X = 0
 MAP_OFFSET_Y = 0
-PLAYER_START = (2.5 * TILE_WIDTH, 1.5 * TILE_HEIGHT)
+START_TILE = (2, 12)
+START_SIGN_TILE = (3, 12)
+GOAL_TILE = (22, 1)
+PLAYER_START = (
+    (START_TILE[0] + 0.5) * TILE_WIDTH,
+    (len(MAP) - START_TILE[1] - 0.5) * TILE_HEIGHT,
+)
 PLAYER_RADIUS = 13
 PLAYER_SPEED = 240
 SPRITE_FRAME_SIZE = 320
@@ -105,9 +114,15 @@ def move_player(
     return x, y
 
 
+def tile_origin(column: int, row: int) -> tuple[float, float]:
+    return (
+        MAP_OFFSET_X + column * TILE_WIDTH,
+        MAP_OFFSET_Y + (len(MAP) - row - 1) * TILE_HEIGHT,
+    )
+
+
 def draw_tile(column: int, row: int, tile: str) -> None:
-    x = MAP_OFFSET_X + column * TILE_WIDTH
-    y = MAP_OFFSET_Y + (len(MAP) - row - 1) * TILE_HEIGHT
+    x, y = tile_origin(column, row)
     draw_rectangle(x, y, x + TILE_WIDTH, y + TILE_HEIGHT, 12, 24, 42, filled=True)
 
     if tile == "#":
@@ -153,15 +168,68 @@ def draw_tile(column: int, row: int, tile: str) -> None:
         )
 
 
-def draw_map() -> None:
+def draw_start_sign(font: Font) -> None:
+    x, y = tile_origin(*START_SIGN_TILE)
+    center_x = x + TILE_WIDTH / 2
+    draw_rectangle(
+        center_x - 3, y + 5, center_x + 3, y + 29,
+        91, 58, 31, filled=True,
+    )
+    draw_rectangle(
+        center_x - 27, y + 27, center_x + 27, y + 50,
+        72, 43, 24, filled=True,
+    )
+    draw_rectangle(
+        center_x - 24, y + 30, center_x + 24, y + 47,
+        177, 127, 66, filled=True,
+    )
+    font.draw(center_x - 12, y + 32, "출발", (255, 239, 190))
+
+
+def draw_goal_door() -> None:
+    x, y = tile_origin(*GOAL_TILE)
+    draw_rectangle(
+        x + 8, y + 4, x + TILE_WIDTH - 8, y + TILE_HEIGHT - 3,
+        51, 29, 18, filled=True,
+    )
+    draw_rectangle(
+        x + 12, y + 7, x + TILE_WIDTH - 12, y + TILE_HEIGHT - 3,
+        139, 82, 39, filled=True,
+    )
+    draw_rectangle(
+        x + 17, y + 12, x + TILE_WIDTH - 17, y + TILE_HEIGHT - 3,
+        105, 56, 29, filled=True,
+    )
+    draw_rectangle(
+        x + TILE_WIDTH / 2 - 2, y + 12,
+        x + TILE_WIDTH / 2 + 2, y + TILE_HEIGHT - 3,
+        161, 98, 47, filled=True,
+    )
+    draw_rectangle(
+        x + 13, y + 8, x + TILE_WIDTH - 13, y + 12,
+        161, 98, 47, filled=True,
+    )
+    draw_rectangle(
+        x + TILE_WIDTH - 22, y + 29,
+        x + TILE_WIDTH - 18, y + 33,
+        238, 190, 83, filled=True,
+    )
+
+
+def draw_map(start_sign_font: Font) -> None:
     clear_canvas()
     for row_index, row in enumerate(MAP):
         for column_index, tile in enumerate(row):
             draw_tile(column_index, row_index, tile)
+    draw_start_sign(start_sign_font)
+    draw_goal_door()
 
 
 def main() -> None:
     open_canvas(SCREEN_WIDTH, SCREEN_HEIGHT)
+    start_sign_font = load_font(
+        str(Path(environ["WINDIR"]) / "Fonts" / "malgun.ttf"), 12
+    )
     sprite = load_image(
         str(Path(__file__).resolve().parents[1] / "assets" / "player_sprite.png")
     )
@@ -202,7 +270,7 @@ def main() -> None:
                 facing = "up" if move_y > 0 else "down"
             animation_time += delta_time
 
-        draw_map()
+        draw_map(start_sign_font)
         frame = int(animation_time * 8) % 4 if is_moving else 0
         sprite.clip_draw(
             frame * SPRITE_FRAME_SIZE,
