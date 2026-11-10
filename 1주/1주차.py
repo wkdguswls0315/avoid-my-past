@@ -47,6 +47,8 @@ MENU_BUTTON_HALF_WIDTH = 290
 MENU_BUTTON_HALF_HEIGHT = 34
 MENU_ITEMS = (("게임 시작", 500), ("종료", 380), ("설정", 260))
 SETTINGS_ITEM_Y = (510, 390, 270)
+PAUSE_ITEMS = (("설정", 430), ("종료", 310))
+PAUSE_ITEM_Y = tuple(y for _, y in PAUSE_ITEMS)
 MAP = (
     "#########################",
     "#.......................#",
@@ -137,11 +139,11 @@ def mouse_event_to_canvas_position(x: int, y: int) -> tuple[float, float]:
 
 
 def menu_item_at(screen: str, x: float, y: float) -> int | None:
-    item_positions = (
-        tuple(item_y for _, item_y in MENU_ITEMS)
-        if screen == "menu"
-        else SETTINGS_ITEM_Y
-    )
+    item_positions = {
+        "menu": tuple(item_y for _, item_y in MENU_ITEMS),
+        "settings": SETTINGS_ITEM_Y,
+        "pause": PAUSE_ITEM_Y,
+    }[screen]
     for index, center_y in enumerate(item_positions):
         if (
             MENU_BUTTON_CENTER_X - MENU_BUTTON_HALF_WIDTH <= x
@@ -478,6 +480,38 @@ def draw_settings(
     )
 
 
+def draw_pause_overlay(
+    menu_font: Font,
+    hint_font: Font,
+    selected_item: int,
+) -> None:
+    draw_rectangle(
+        0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 3, 8, 15, 170, filled=True
+    )
+    panel_left, panel_bottom = 320, 190
+    panel_right, panel_top = 900, 630
+    draw_rectangle(
+        panel_left, panel_bottom, panel_right, panel_top,
+        12, 24, 36, 245, filled=True,
+    )
+    draw_rectangle(
+        panel_left, panel_bottom, panel_right, panel_top,
+        75, 120, 124, filled=False,
+    )
+    draw_centered_text(
+        menu_font, "일시정지", (panel_left + panel_right) / 2, 555,
+        (238, 221, 185),
+    )
+    for index, (label, y) in enumerate(PAUSE_ITEMS):
+        draw_menu_button(
+            menu_font, label, y, index == selected_item, MENU_BUTTON_CENTER_X
+        )
+    draw_centered_text(
+        hint_font, "ESC  TO RESUME", (panel_left + panel_right) / 2, 225,
+        (115, 145, 153),
+    )
+
+
 def main() -> None:
     open_canvas(SCREEN_WIDTH, SCREEN_HEIGHT)
     set_display_mode(fullscreen=False)
@@ -503,8 +537,10 @@ def main() -> None:
     previous_time = perf_counter()
     running = True
     screen = "menu"
+    pause_menu_open = False
     selected_menu_item = 0
     selected_settings_item = 0
+    selected_pause_item = 0
     sound_enabled = True
     fullscreen = False
 
@@ -519,10 +555,17 @@ def main() -> None:
             elif event.type == SDL_KEYDOWN:
                 if event.key == SDLK_ESCAPE:
                     if screen == "settings":
-                        screen = "menu"
+                        if pause_menu_open:
+                            screen = "pause"
+                        else:
+                            screen = "menu"
                     elif screen == "game":
-                        screen = "menu"
+                        screen = "pause"
+                        pause_menu_open = True
                         held_keys.clear()
+                    elif screen == "pause":
+                        screen = "game"
+                        pause_menu_open = False
                     else:
                         running = False
                 elif screen == "game" and event.key in KEY_DIRECTIONS:
@@ -531,6 +574,10 @@ def main() -> None:
                     selected_menu_item = (selected_menu_item - 1) % 3
                 elif screen == "menu" and event.key in (SDLK_DOWN, SDLK_s):
                     selected_menu_item = (selected_menu_item + 1) % 3
+                elif screen == "pause" and event.key in (SDLK_UP, SDLK_w):
+                    selected_pause_item = (selected_pause_item - 1) % len(PAUSE_ITEMS)
+                elif screen == "pause" and event.key in (SDLK_DOWN, SDLK_s):
+                    selected_pause_item = (selected_pause_item + 1) % len(PAUSE_ITEMS)
                 elif screen == "settings" and event.key in (SDLK_UP, SDLK_w):
                     selected_settings_item = (selected_settings_item - 1) % 3
                 elif screen == "settings" and event.key in (SDLK_DOWN, SDLK_s):
@@ -544,7 +591,14 @@ def main() -> None:
                     elif selected_menu_item == 1:
                         running = False
                     else:
+                        pause_menu_open = False
                         screen = "settings"
+                elif screen == "pause" and event.key in (SDLK_RETURN, SDLK_KP_ENTER):
+                    if selected_pause_item == 0:
+                        pause_menu_open = True
+                        screen = "settings"
+                    else:
+                        running = False
                 elif screen == "settings" and event.key in (
                     SDLK_LEFT, SDLK_RIGHT, SDLK_RETURN, SDLK_KP_ENTER
                 ):
@@ -555,7 +609,7 @@ def main() -> None:
                         fullscreen = not fullscreen
                         set_display_mode(fullscreen)
                     else:
-                        screen = "menu"
+                        screen = "pause" if pause_menu_open else "menu"
             elif event.type == SDL_MOUSEMOTION and screen in ("menu", "settings"):
                 mouse_x, mouse_y = mouse_event_to_canvas_position(event.x, event.y)
                 hovered_item = menu_item_at(screen, mouse_x, mouse_y)
@@ -564,10 +618,15 @@ def main() -> None:
                         selected_menu_item = hovered_item
                     else:
                         selected_settings_item = hovered_item
+            elif event.type == SDL_MOUSEMOTION and screen == "pause":
+                mouse_x, mouse_y = mouse_event_to_canvas_position(event.x, event.y)
+                hovered_item = menu_item_at(screen, mouse_x, mouse_y)
+                if hovered_item is not None:
+                    selected_pause_item = hovered_item
             elif (
                 event.type == SDL_MOUSEBUTTONDOWN
                 and event.button == SDL_BUTTON_LEFT
-                and screen in ("menu", "settings")
+                and screen in ("menu", "settings", "pause")
             ):
                 mouse_x, mouse_y = mouse_event_to_canvas_position(event.x, event.y)
                 clicked_item = menu_item_at(screen, mouse_x, mouse_y)
@@ -581,7 +640,15 @@ def main() -> None:
                     elif clicked_item == 1:
                         running = False
                     else:
+                        pause_menu_open = False
                         screen = "settings"
+                elif clicked_item is not None and screen == "pause":
+                    selected_pause_item = clicked_item
+                    if clicked_item == 0:
+                        pause_menu_open = True
+                        screen = "settings"
+                    else:
+                        running = False
                 elif clicked_item is not None:
                     selected_settings_item = clicked_item
                     if clicked_item == 0:
@@ -591,7 +658,7 @@ def main() -> None:
                         fullscreen = not fullscreen
                         set_display_mode(fullscreen)
                     else:
-                        screen = "menu"
+                        screen = "pause" if pause_menu_open else "menu"
             elif event.type == SDL_KEYUP and event.key in KEY_DIRECTIONS:
                 held_keys.discard(event.key)
 
@@ -622,6 +689,23 @@ def main() -> None:
                 TILE_WIDTH,
                 TILE_HEIGHT,
             )
+            if pause_menu_open:
+                draw_pause_overlay(
+                    menu_font, hint_font, selected_pause_item
+                )
+        elif screen == "pause":
+            draw_map()
+            sprite.clip_draw(
+                int(animation_time * 8) % 4 * SPRITE_FRAME_SIZE,
+                SPRITE_ROWS[facing],
+                SPRITE_FRAME_SIZE,
+                SPRITE_FRAME_SIZE,
+                player_x,
+                player_y,
+                TILE_WIDTH,
+                TILE_HEIGHT,
+            )
+            draw_pause_overlay(menu_font, hint_font, selected_pause_item)
         elif screen == "settings":
             draw_settings(
                 heading_font, menu_font, hint_font, selected_settings_item,
