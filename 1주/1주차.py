@@ -1,9 +1,7 @@
 import ctypes
-from bisect import bisect_right
 from os import environ
 from pathlib import Path
 from time import perf_counter
-from typing import NamedTuple
 
 import pico2d
 import pico2d.pico2d as pico2d_core
@@ -31,8 +29,6 @@ from pico2d import (
     Mix_VolumeMusic,
     close_canvas,
     clear_canvas,
-    draw_circle,
-    draw_line,
     draw_rectangle,
     get_events,
     load_font,
@@ -75,21 +71,12 @@ MAP_OFFSET_X = 0
 MAP_OFFSET_Y = 0
 START_TILE = (2, 12)
 GOAL_TILE = (22, 1)
-ROUNDS = (
-    ((18, 11), 50),
-    ((5, 5), 45),
-    ((17, 4), 42),
-    ((3, 2), 40),
-    ((21, 7), 38),
-)
 PLAYER_START = (
     (START_TILE[0] + 0.5) * TILE_WIDTH,
     (len(MAP) - START_TILE[1] - 0.5) * TILE_HEIGHT,
 )
 PLAYER_RADIUS = 13
 PLAYER_SPEED = 240
-START_SAFE_RADIUS = 52
-GHOST_HIT_DISTANCE = 22
 SPRITE_FRAME_SIZE = 320
 SPRITE_ROWS = {
     "down": 3 * SPRITE_FRAME_SIZE,
@@ -175,115 +162,6 @@ def tile_origin(column: int, row: int) -> tuple[float, float]:
     )
 
 
-def tile_center(column: int, row: int) -> tuple[float, float]:
-    x, y = tile_origin(column, row)
-    return x + TILE_WIDTH / 2, y + TILE_HEIGHT / 2
-
-
-class Sample(NamedTuple):
-    time: float
-    x: float
-    y: float
-    facing: str
-    frame: int
-
-
-def replay_at(route: list[Sample], elapsed: float) -> Sample | None:
-    if elapsed >= route[-1].time:
-        return None
-    index = bisect_right(route, elapsed, key=lambda sample: sample.time) - 1
-    start, end = route[index], route[index + 1]
-    fraction = (elapsed - start.time) / (end.time - start.time)
-    return Sample(
-        elapsed,
-        start.x + (end.x - start.x) * fraction,
-        start.y + (end.y - start.y) * fraction,
-        start.facing,
-        start.frame,
-    )
-
-
-class MapRun:
-    def __init__(self) -> None:
-        self.routes: list[list[Sample]] = []
-        self.notice = ""
-        self.notice_until = 0.0
-        self.start_round()
-
-    def start_round(self) -> None:
-        self.key_tile, self.time_limit = ROUNDS[len(self.routes)]
-        self.elapsed = self.animation_time = 0.0
-        self.x, self.y = PLAYER_START
-        self.facing = "down"
-        self.frame = 0
-        self.has_key = False
-        self.recording = [self.sample()]
-        self.ghosts = [route[0] for route in self.routes]
-
-    def sample(self) -> Sample:
-        return Sample(self.elapsed, self.x, self.y, self.facing, self.frame)
-
-    def reset(self, notice: str = "") -> None:
-        self.routes.clear()
-        self.start_round()
-        self.notice = notice
-        self.notice_until = 2.5 if notice else 0.0
-
-    def is_near(self, x: float, y: float, distance: float) -> bool:
-        return (self.x - x) ** 2 + (self.y - y) ** 2 <= distance ** 2
-
-    def update(self, move_x: int, move_y: int, delta_time: float) -> str:
-        if delta_time <= 0:
-            return "playing"
-        self.elapsed += delta_time
-        position = move_player(self.x, self.y, move_x, move_y, delta_time)
-        if move_x or move_y:
-            if abs(move_x) > abs(move_y):
-                self.facing = "right" if move_x > 0 else "left"
-            else:
-                self.facing = "up" if move_y > 0 else "down"
-        self.frame = 0
-        if position != (self.x, self.y):
-            self.animation_time += delta_time
-            self.frame = int(self.animation_time * 8) % 4
-        self.x, self.y = position
-        self.recording.append(self.sample())
-        self.ghosts = [
-            ghost for route in self.routes
-            if (ghost := replay_at(route, self.elapsed)) is not None
-        ]
-
-        # 같은 발판에서 시작하므로 발판 주변에서는 분신에 닿아도 안전하다.
-        if not self.is_near(*PLAYER_START, START_SAFE_RADIUS) and any(
-            self.is_near(ghost.x, ghost.y, GHOST_HIT_DISTANCE)
-            for ghost in self.ghosts
-        ):
-            self.reset("분신에게 닿았습니다. 1라운드부터 다시 시작합니다.")
-            return "reset"
-        if self.elapsed >= self.time_limit:
-            self.reset("시간 초과. 1라운드부터 다시 시작합니다.")
-            return "reset"
-        if not self.has_key and self.is_near(*tile_center(*self.key_tile), 23):
-            self.has_key = True
-            self.notice = "열쇠 획득! 오른쪽 위 출구로 가세요."
-            self.notice_until = self.elapsed + 2.5
-        if self.is_near(*tile_center(*GOAL_TILE), 23):
-            if self.has_key:
-                self.routes.append(self.recording)
-                if len(self.routes) == len(ROUNDS):
-                    return "clear"
-                self.start_round()
-                self.notice = (
-                    "지난 라운드의 분신이 나타납니다. 발판 주변은 안전합니다."
-                    if len(self.routes) == 1 else "다음 라운드 시작! 새 열쇠를 찾으세요."
-                )
-                self.notice_until = 3.0
-                return "next"
-            self.notice = "출구가 잠겨 있습니다. 먼저 열쇠를 찾으세요."
-            self.notice_until = self.elapsed + 1.5
-        return "playing"
-
-
 def draw_tile(column: int, row: int, tile: str) -> None:
     x, y = tile_origin(column, row)
     draw_rectangle(x, y, x + TILE_WIDTH, y + TILE_HEIGHT, 12, 24, 42, filled=True)
@@ -343,7 +221,7 @@ def draw_start_pad() -> None:
     )
 
 
-def draw_goal_door(unlocked: bool) -> None:
+def draw_goal_door() -> None:
     x, y = tile_origin(*GOAL_TILE)
     draw_rectangle(
         x + 8, y + 4, x + TILE_WIDTH - 8, y + TILE_HEIGHT - 3,
@@ -351,7 +229,7 @@ def draw_goal_door(unlocked: bool) -> None:
     )
     draw_rectangle(
         x + 12, y + 7, x + TILE_WIDTH - 12, y + TILE_HEIGHT - 3,
-        *((67, 162, 133) if unlocked else (139, 82, 39)), filled=True,
+        139, 82, 39, filled=True,
     )
     draw_rectangle(
         x + 17, y + 12, x + TILE_WIDTH - 17, y + TILE_HEIGHT - 3,
@@ -373,54 +251,20 @@ def draw_goal_door(unlocked: bool) -> None:
     )
 
 
-def draw_map(unlocked: bool) -> None:
+def draw_map() -> None:
     clear_canvas()
     for row_index, row in enumerate(MAP):
         for column_index, tile in enumerate(row):
             draw_tile(column_index, row_index, tile)
     draw_start_pad()
-    draw_goal_door(unlocked)
+    draw_goal_door()
 
 
-def draw_actor(sprite: Image, actor: Sample) -> None:
+def draw_player(sprite: Image, x: float, y: float, facing: str, frame: int) -> None:
     sprite.clip_draw(
-        actor.frame * SPRITE_FRAME_SIZE, SPRITE_ROWS[actor.facing],
-        SPRITE_FRAME_SIZE, SPRITE_FRAME_SIZE,
-        actor.x, actor.y, TILE_WIDTH, TILE_HEIGHT,
+        frame * SPRITE_FRAME_SIZE, SPRITE_ROWS[facing],
+        SPRITE_FRAME_SIZE, SPRITE_FRAME_SIZE, x, y, TILE_WIDTH, TILE_HEIGHT,
     )
-
-
-def draw_game(sprite: Image, hint_font: Font, menu_font: Font, run: MapRun) -> None:
-    draw_map(run.has_key)
-    if not run.has_key:
-        x, y = tile_center(*run.key_tile)
-        draw_circle(x - 8, y + 2, 7, 255, 211, 102)
-        draw_line(x - 1, y + 2, x + 12, y + 2, 255, 211, 102)
-        draw_line(x + 8, y + 2, x + 8, y - 4, 255, 211, 102)
-        draw_line(x + 12, y + 2, x + 12, y - 6, 255, 211, 102)
-    if run.ghosts:
-        pico2d.SDL_SetTextureColorMod(sprite.texture, 115, 245, 255)
-        sprite.opacify(0.55)
-        for ghost in run.ghosts:
-            draw_circle(ghost.x, ghost.y, PLAYER_RADIUS + 2, 102, 220, 240, 180)
-            draw_actor(sprite, ghost)
-        sprite.opacify(1.0)
-        pico2d.SDL_SetTextureColorMod(sprite.texture, 255, 255, 255)
-    draw_actor(sprite, run.sample())
-
-    remaining = max(0, int(run.time_limit - run.elapsed + 0.999))
-    round_number = min(len(run.routes) + 1, len(ROUNDS))
-    key_status = "YES" if run.has_key else "NO"
-    draw_rectangle(12, 847, 550, 895, 12, 24, 36, 220, filled=True)
-    hint_font.draw(
-        24, 865,
-        f"MAP 1   ROUND {round_number}/{len(ROUNDS)}   TIME {remaining:02d}s"
-        f"   KEY {key_status}",
-        (238, 221, 185),
-    )
-    if run.elapsed < run.notice_until:
-        draw_rectangle(390, 14, 1210, 60, 12, 24, 36, 220, filled=True)
-        draw_centered_text(menu_font, run.notice, 800, 38, (238, 221, 185))
 
 
 def sdl_error_message() -> str:
@@ -699,7 +543,10 @@ def main() -> None:
     sprite = load_image(
         str(Path(__file__).resolve().parents[1] / "assets" / "player_sprite.png")
     )
-    run = MapRun()
+    player_x, player_y = PLAYER_START
+    facing = "down"
+    animation_time = 0.0
+    frame = 0
     held_keys: set[int] = set()
     previous_time = perf_counter()
     running = True
@@ -733,12 +580,8 @@ def main() -> None:
                     elif screen == "pause":
                         screen = "game"
                         pause_menu_open = False
-                    elif screen == "clear":
-                        screen = "menu"
                     else:
                         running = False
-                elif screen == "clear" and event.key in (SDLK_RETURN, SDLK_KP_ENTER):
-                    screen = "menu"
                 elif screen == "game" and event.key in KEY_DIRECTIONS:
                     held_keys.add(event.key)
                 elif screen == "menu" and event.key in (SDLK_UP, SDLK_w):
@@ -756,7 +599,9 @@ def main() -> None:
                 elif screen == "menu" and event.key in (SDLK_RETURN, SDLK_KP_ENTER):
                     if selected_menu_item == 0:
                         screen = "game"
-                        run.reset()
+                        player_x, player_y = PLAYER_START
+                        facing = "down"
+                        animation_time = 0.0
                         held_keys.clear()
                     elif selected_menu_item == 1:
                         running = False
@@ -804,7 +649,9 @@ def main() -> None:
                     selected_menu_item = clicked_item
                     if clicked_item == 0:
                         screen = "game"
-                        run.reset()
+                        player_x, player_y = PLAYER_START
+                        facing = "down"
+                        animation_time = 0.0
                         held_keys.clear()
                     elif clicked_item == 1:
                         running = False
@@ -834,16 +681,23 @@ def main() -> None:
         if screen == "game":
             move_x = sum(KEY_DIRECTIONS[key][0] for key in held_keys)
             move_y = sum(KEY_DIRECTIONS[key][1] for key in held_keys)
-            result = run.update(move_x, move_y, delta_time)
-            if result != "playing":
-                held_keys.clear()
-            if result == "clear":
-                screen = "clear"
+            is_moving = move_x != 0 or move_y != 0
 
-        if screen in ("game", "pause", "clear") or (
-            screen == "settings" and pause_menu_open
-        ):
-            draw_game(sprite, hint_font, menu_font, run)
+            if is_moving:
+                player_x, player_y = move_player(
+                    player_x, player_y, move_x, move_y, delta_time
+                )
+                if abs(move_x) > abs(move_y):
+                    facing = "right" if move_x > 0 else "left"
+                else:
+                    facing = "up" if move_y > 0 else "down"
+                animation_time += delta_time
+
+            frame = int(animation_time * 8) % 4 if is_moving else 0
+
+        if screen in ("game", "pause") or (screen == "settings" and pause_menu_open):
+            draw_map()
+            draw_player(sprite, player_x, player_y, facing, frame)
 
         if screen == "pause":
             draw_pause_overlay(menu_font, hint_font, selected_pause_item)
@@ -852,11 +706,6 @@ def main() -> None:
                 heading_font, menu_font, hint_font, selected_settings_item,
                 sound_enabled, fullscreen, sprite, pause_menu_open,
             )
-        elif screen == "clear":
-            draw_rectangle(0, 0, SCREEN_WIDTH - 1, SCREEN_HEIGHT - 1, 3, 8, 15, 116, filled=True)
-            draw_centered_text(heading_font, "첫 번째 맵 클리어!", 800, 492, (238, 221, 185))
-            draw_centered_text(menu_font, "5라운드를 모두 통과했습니다.", 800, 420, (238, 221, 185))
-            draw_centered_text(hint_font, "ENTER / ESC  TO MAIN MENU", 800, 360, (168, 200, 208))
         elif screen == "menu":
             draw_menu(
                 title_font, menu_font, hint_font, selected_menu_item, sprite
