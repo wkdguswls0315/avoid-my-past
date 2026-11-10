@@ -93,6 +93,7 @@ START_SAFE_RADIUS = 60
 GHOST_HIT_RADIUS = 22
 FIRST_GHOST_DELAY = 1.0
 GHOST_INTERVAL = 1.25
+GHOST_BASE_SPEED = 1.1
 PRESSURE_STEPS = (12.0, 22.0, 34.0)
 PRESSURE_STEP = 0.2
 MIRROR_START = 22.0
@@ -539,7 +540,9 @@ class Ghost(NamedTuple):
 
 def pressure_clock(elapsed: float) -> float:
     # 단계가 바뀌어도 이미 진행한 재생 위치는 그대로 이어진다.
-    return elapsed + PRESSURE_STEP * sum(max(0.0, elapsed - step) for step in PRESSURE_STEPS)
+    return GHOST_BASE_SPEED * elapsed + PRESSURE_STEP * sum(
+        max(0.0, elapsed - step) for step in PRESSURE_STEPS
+    )
 
 
 def replay_at(route: list[MovementSample], elapsed: float) -> MovementSample | None:
@@ -761,7 +764,9 @@ def draw_run_hud(menu_font: Font, hint_font: Font, run: CellarRun) -> None:
     )
     mirrors = sum(ghost.mirrored for ghost in run.ghosts)
     originals = len(run.ghosts) - mirrors
-    speed = 1 + PRESSURE_STEP * sum(run.elapsed >= step for step in PRESSURE_STEPS) if run.routes else 1
+    speed = 1.0
+    if run.routes:
+        speed = GHOST_BASE_SPEED + PRESSURE_STEP * sum(run.elapsed >= step for step in PRESSURE_STEPS)
     hint_font.draw(736, 865, f"SHADOWS {originals}", (139, 207, 212))
     hint_font.draw(896, 865, f"SPEED x{speed:.1f}", (239, 184, 123) if speed > 1 else (224, 210, 187))
     if mirrors < len(run.mirror_routes):
