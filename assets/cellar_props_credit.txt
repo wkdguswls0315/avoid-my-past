@@ -1,0 +1,4 @@
+Cellar props source: 16x16 Puny Dungeon Tileset by Shade
+https://opengameart.org/content/16x16-puny-dungeon-tileset
+License: CC0 1.0 Universal (https://creativecommons.org/publicdomain/zero/1.0/)
+The game draws selected sprites from the original sheet.
