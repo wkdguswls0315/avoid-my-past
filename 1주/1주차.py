@@ -1,23 +1,32 @@
+import ctypes
+from os import environ
 from pathlib import Path
 from time import perf_counter
 
+import pico2d
 from pico2d import (
+    Font,
     SDL_KEYDOWN,
     SDL_KEYUP,
     SDL_QUIT,
     SDLK_DOWN,
     SDLK_ESCAPE,
     SDLK_LEFT,
+    SDLK_KP_ENTER,
+    SDLK_RETURN,
     SDLK_RIGHT,
     SDLK_UP,
     SDLK_a,
     SDLK_d,
     SDLK_s,
     SDLK_w,
+    Mix_Volume,
+    Mix_VolumeMusic,
     close_canvas,
     clear_canvas,
     draw_rectangle,
     get_events,
+    load_font,
     load_image,
     open_canvas,
     update_canvas,
@@ -26,6 +35,8 @@ from pico2d import (
 
 SCREEN_WIDTH = 1600
 SCREEN_HEIGHT = 900
+WINDOW_WIDTH = 1280
+WINDOW_HEIGHT = 720
 MAP = (
     "#########################",
     "#.......................#",
@@ -215,8 +226,123 @@ def draw_map() -> None:
     draw_goal_door()
 
 
+def sdl_error_message() -> str:
+    error = pico2d.SDL_GetError()
+    if isinstance(error, bytes):
+        return error.decode("utf-8", errors="replace")
+    return str(error)
+
+
+def set_display_mode(fullscreen: bool) -> None:
+    window = pico2d.window
+    flags = pico2d.SDL_WINDOW_FULLSCREEN_DESKTOP if fullscreen else 0
+    if pico2d.SDL_SetWindowFullscreen(window, flags) != 0:
+        raise RuntimeError(f"Could not change display mode: {sdl_error_message()}")
+
+    if not fullscreen:
+        pico2d.SDL_SetWindowSize(window, WINDOW_WIDTH, WINDOW_HEIGHT)
+        pico2d.SDL_SetWindowPosition(
+            window, pico2d.SDL_WINDOWPOS_CENTERED, pico2d.SDL_WINDOWPOS_CENTERED
+        )
+
+    if pico2d.SDL_RenderSetLogicalSize(
+        pico2d.renderer, SCREEN_WIDTH, SCREEN_HEIGHT
+    ) != 0:
+        raise RuntimeError(f"Could not scale the game canvas: {sdl_error_message()}")
+
+
+def set_sound_enabled(enabled: bool) -> None:
+    if pico2d.audio_on:
+        volume = 128 if enabled else 0
+        Mix_Volume(-1, volume)
+        Mix_VolumeMusic(volume)
+
+
+def draw_centered_text(
+    font: Font,
+    text: str,
+    center_x: float,
+    y: float,
+    color: tuple[int, int, int],
+) -> None:
+    text_width = ctypes.c_int()
+    text_height = ctypes.c_int()
+    result = pico2d.TTF_SizeUTF8(
+        font.font,
+        text.encode("utf-8"),
+        ctypes.byref(text_width),
+        ctypes.byref(text_height),
+    )
+    if result != 0:
+        raise RuntimeError(f"Could not measure menu text: {sdl_error_message()}")
+    font.draw(center_x - text_width.value / 2, y, text, color)
+
+
+def draw_menu_button(
+    font: Font, label: str, y: float, selected: bool
+) -> None:
+    left, right = 540, 1060
+    bottom, top = y - 26, y + 34
+    if selected:
+        draw_rectangle(left, bottom, right, top, 34, 52, 68, filled=True)
+    draw_rectangle(left, bottom, right, top, 75, 151, 151, filled=False)
+    color = (245, 231, 199) if selected else (164, 182, 199)
+    draw_centered_text(font, label, SCREEN_WIDTH / 2, y - 10, color)
+
+
+def draw_menu(
+    title_font: Font, menu_font: Font, selected_item: int
+) -> None:
+    clear_canvas()
+    draw_rectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 12, 24, 42, filled=True)
+    draw_centered_text(
+        title_font, "Avoid My Past", SCREEN_WIDTH / 2, 742, (231, 220, 191)
+    )
+    draw_rectangle(620, 713, 980, 716, 75, 151, 151, filled=True)
+    for index, (label, y) in enumerate(
+        (("게임 시작", 500), ("종료", 380), ("설정", 260))
+    ):
+        draw_menu_button(menu_font, label, y, index == selected_item)
+    draw_centered_text(
+        menu_font, "방향키로 선택하고 Enter로 확인", SCREEN_WIDTH / 2, 145,
+        (127, 149, 169),
+    )
+
+
+def draw_settings(
+    title_font: Font,
+    menu_font: Font,
+    selected_item: int,
+    sound_enabled: bool,
+    fullscreen: bool,
+) -> None:
+    clear_canvas()
+    draw_rectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 12, 24, 42, filled=True)
+    draw_centered_text(
+        title_font, "설정", SCREEN_WIDTH / 2, 710, (231, 220, 191)
+    )
+    options = (
+        f"소리: {'켜짐' if sound_enabled else '꺼짐'}",
+        f"화면 모드: {'전체화면' if fullscreen else '창화면 (1280 x 720)'}",
+        "돌아가기",
+    )
+    for index, (label, y) in enumerate(zip(options, (510, 390, 270))):
+        draw_menu_button(menu_font, label, y, index == selected_item)
+    draw_centered_text(
+        menu_font, "방향키로 선택하고 Enter로 변경", SCREEN_WIDTH / 2, 145,
+        (127, 149, 169),
+    )
+
+
 def main() -> None:
     open_canvas(SCREEN_WIDTH, SCREEN_HEIGHT)
+    set_display_mode(fullscreen=False)
+    title_font = load_font(
+        str(Path(environ["WINDIR"]) / "Fonts" / "malgun.ttf"), 56
+    )
+    menu_font = load_font(
+        str(Path(environ["WINDIR"]) / "Fonts" / "malgun.ttf"), 30
+    )
     sprite = load_image(
         str(Path(__file__).resolve().parents[1] / "assets" / "player_sprite.png")
     )
@@ -226,6 +352,11 @@ def main() -> None:
     held_keys: set[int] = set()
     previous_time = perf_counter()
     running = True
+    screen = "menu"
+    selected_menu_item = 0
+    selected_settings_item = 0
+    sound_enabled = True
+    fullscreen = False
 
     while running:
         current_time = perf_counter()
@@ -237,38 +368,81 @@ def main() -> None:
                 running = False
             elif event.type == SDL_KEYDOWN:
                 if event.key == SDLK_ESCAPE:
-                    running = False
-                elif event.key in KEY_DIRECTIONS:
+                    if screen == "settings":
+                        screen = "menu"
+                    elif screen == "game":
+                        screen = "menu"
+                        held_keys.clear()
+                    else:
+                        running = False
+                elif screen == "game" and event.key in KEY_DIRECTIONS:
                     held_keys.add(event.key)
+                elif screen == "menu" and event.key in (SDLK_UP, SDLK_w):
+                    selected_menu_item = (selected_menu_item - 1) % 3
+                elif screen == "menu" and event.key in (SDLK_DOWN, SDLK_s):
+                    selected_menu_item = (selected_menu_item + 1) % 3
+                elif screen == "settings" and event.key in (SDLK_UP, SDLK_w):
+                    selected_settings_item = (selected_settings_item - 1) % 3
+                elif screen == "settings" and event.key in (SDLK_DOWN, SDLK_s):
+                    selected_settings_item = (selected_settings_item + 1) % 3
+                elif screen == "menu" and event.key in (SDLK_RETURN, SDLK_KP_ENTER):
+                    if selected_menu_item == 0:
+                        screen = "game"
+                        player_x, player_y = PLAYER_START
+                        animation_time = 0.0
+                        held_keys.clear()
+                    elif selected_menu_item == 1:
+                        running = False
+                    else:
+                        screen = "settings"
+                elif screen == "settings" and event.key in (
+                    SDLK_LEFT, SDLK_RIGHT, SDLK_RETURN, SDLK_KP_ENTER
+                ):
+                    if selected_settings_item == 0:
+                        sound_enabled = not sound_enabled
+                        set_sound_enabled(sound_enabled)
+                    elif selected_settings_item == 1:
+                        fullscreen = not fullscreen
+                        set_display_mode(fullscreen)
+                    else:
+                        screen = "menu"
             elif event.type == SDL_KEYUP and event.key in KEY_DIRECTIONS:
                 held_keys.discard(event.key)
 
-        move_x = sum(KEY_DIRECTIONS[key][0] for key in held_keys)
-        move_y = sum(KEY_DIRECTIONS[key][1] for key in held_keys)
-        is_moving = move_x != 0 or move_y != 0
+        if screen == "game":
+            move_x = sum(KEY_DIRECTIONS[key][0] for key in held_keys)
+            move_y = sum(KEY_DIRECTIONS[key][1] for key in held_keys)
+            is_moving = move_x != 0 or move_y != 0
 
-        if is_moving:
-            player_x, player_y = move_player(
-                player_x, player_y, move_x, move_y, delta_time
+            if is_moving:
+                player_x, player_y = move_player(
+                    player_x, player_y, move_x, move_y, delta_time
+                )
+                if abs(move_x) > abs(move_y):
+                    facing = "right" if move_x > 0 else "left"
+                else:
+                    facing = "up" if move_y > 0 else "down"
+                animation_time += delta_time
+
+            draw_map()
+            frame = int(animation_time * 8) % 4 if is_moving else 0
+            sprite.clip_draw(
+                frame * SPRITE_FRAME_SIZE,
+                SPRITE_ROWS[facing],
+                SPRITE_FRAME_SIZE,
+                SPRITE_FRAME_SIZE,
+                player_x,
+                player_y,
+                TILE_WIDTH,
+                TILE_HEIGHT,
             )
-            if abs(move_x) > abs(move_y):
-                facing = "right" if move_x > 0 else "left"
-            else:
-                facing = "up" if move_y > 0 else "down"
-            animation_time += delta_time
-
-        draw_map()
-        frame = int(animation_time * 8) % 4 if is_moving else 0
-        sprite.clip_draw(
-            frame * SPRITE_FRAME_SIZE,
-            SPRITE_ROWS[facing],
-            SPRITE_FRAME_SIZE,
-            SPRITE_FRAME_SIZE,
-            player_x,
-            player_y,
-            TILE_WIDTH,
-            TILE_HEIGHT,
-        )
+        elif screen == "settings":
+            draw_settings(
+                title_font, menu_font, selected_settings_item,
+                sound_enabled, fullscreen,
+            )
+        else:
+            draw_menu(title_font, menu_font, selected_menu_item)
         update_canvas()
 
     close_canvas()
