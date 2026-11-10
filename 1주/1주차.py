@@ -282,9 +282,7 @@ def draw_centered_text(
 
 def draw_menu_button(
     font: Font,
-    hint_font: Font,
     label: str,
-    hint: str,
     y: float,
     selected: bool,
     center_x: float,
@@ -300,11 +298,7 @@ def draw_menu_button(
         draw_rectangle(left, bottom, right, top, 42, 63, 76, filled=False)
 
     color = (239, 222, 186) if selected else (171, 186, 197)
-    draw_centered_text(font, label, center_x - 45, y - 9, color)
-    draw_centered_text(
-        hint_font, hint, center_x + 185, y - 5,
-        (111, 145, 157) if selected else (84, 106, 120),
-    )
+    draw_centered_text(font, label, center_x, y, color)
 
 
 def draw_menu_background(sprite: Image) -> None:
@@ -317,6 +311,14 @@ def draw_menu_background(sprite: Image) -> None:
         (820, (19, 33, 51)),
     ):
         draw_rectangle(0, y, SCREEN_WIDTH, y + 100, *color, filled=True)
+
+    draw_rectangle(0, 0, SCREEN_WIDTH, 169, 12, 22, 32, filled=True)
+    floor_colors = ((16, 29, 39), (18, 31, 41), (20, 33, 43))
+    for row, y in enumerate(range(0, 160, 40)):
+        offset = 0 if row % 2 == 0 else -40
+        for column, x in enumerate(range(offset, SCREEN_WIDTH, 80)):
+            color = floor_colors[(row + column) % len(floor_colors)]
+            draw_rectangle(x + 2, y + 2, x + 77, y + 37, *color, filled=True)
 
     for x, y, size in (
         (130, 780, 4), (245, 620, 3), (370, 835, 5), (460, 710, 3),
@@ -367,12 +369,8 @@ def draw_menu_background(sprite: Image) -> None:
         portal_x - 137, portal_y - 174, portal_x + 137, portal_y - 160,
         24, 43, 55, filled=True,
     )
-    for x in range(0, SCREEN_WIDTH, 100):
-        draw_rectangle(x, 0, x + 2, 119, 26, 42, 55, filled=True)
-    for y in (58, 119):
-        draw_rectangle(0, y, SCREEN_WIDTH, y + 2, 29, 45, 56, filled=True)
-    draw_rectangle(0, 137, SCREEN_WIDTH, 142, 55, 87, 94, filled=True)
-    draw_rectangle(0, 142, SCREEN_WIDTH, 151, 17, 32, 45, filled=True)
+    draw_rectangle(0, 153, SCREEN_WIDTH, 157, 55, 87, 94, filled=True)
+    draw_rectangle(0, 157, SCREEN_WIDTH, 169, 17, 32, 45, filled=True)
 
     sprite.clip_draw(
         0, SPRITE_ROWS["down"], SPRITE_FRAME_SIZE, SPRITE_FRAME_SIZE,
@@ -396,6 +394,13 @@ def draw_menu_title(title_font: Font, subtitle_font: Font) -> None:
     draw_rectangle(793, 667, 807, 681, 173, 144, 96, filled=True)
 
 
+def draw_menu_footer(font: Font, text: str) -> None:
+    left, right = 320, 900
+    draw_rectangle(left, 51, right, 119, 12, 24, 36, filled=True)
+    draw_rectangle(left, 51, right, 119, 42, 70, 80, filled=False)
+    draw_centered_text(font, text, (left + right) / 2, 85, (115, 145, 153))
+
+
 def draw_menu(
     title_font: Font,
     menu_font: Font,
@@ -408,13 +413,11 @@ def draw_menu(
     for index, (label, y) in enumerate(
         (("게임 시작", 500), ("종료", 380), ("설정", 260))
     ):
-        hint = ("01 / ENTER", "02 / ESC", "03 / SETUP")[index]
         draw_menu_button(
-            menu_font, hint_font, label, hint, y, index == selected_item, 610
+            menu_font, label, y, index == selected_item, 610
         )
-    draw_centered_text(
-        hint_font, "USE  UP / DOWN  TO SELECT       ENTER  TO CONFIRM",
-        610, 133, (103, 128, 141),
+    draw_menu_footer(
+        hint_font, "USE  UP / DOWN  TO SELECT       ENTER  TO CONFIRM"
     )
 
 
@@ -432,17 +435,16 @@ def draw_settings(
         heading_font, "설정", 610, 697, (238, 221, 185)
     )
     options = (
-        (f"소리   {'켜짐' if sound_enabled else '꺼짐'}", "SOUND"),
-        (f"화면 모드   {'전체화면' if fullscreen else '창화면 (1280 x 720)'}", "DISPLAY"),
-        ("돌아가기", "BACK"),
+        f"소리   {'켜짐' if sound_enabled else '꺼짐'}",
+        f"화면 모드   {'전체화면' if fullscreen else '창화면 (1280 x 720)'}",
+        "돌아가기",
     )
-    for index, ((label, hint), y) in enumerate(zip(options, (510, 390, 270))):
+    for index, (label, y) in enumerate(zip(options, (510, 390, 270))):
         draw_menu_button(
-            menu_font, hint_font, label, hint, y, index == selected_item, 610
+            menu_font, label, y, index == selected_item, 610
         )
-    draw_centered_text(
-        hint_font, "LEFT / RIGHT  OR  ENTER  TO CHANGE       ESC  TO RETURN",
-        610, 133, (103, 128, 141),
+    draw_menu_footer(
+        hint_font, "LEFT / RIGHT  OR  ENTER  TO CHANGE       ESC  TO RETURN"
     )
 
 
