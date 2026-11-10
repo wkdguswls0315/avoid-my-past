@@ -45,6 +45,8 @@ WINDOW_HEIGHT = 720
 MENU_BUTTON_CENTER_X = 610
 MENU_BUTTON_HALF_WIDTH = 290
 MENU_BUTTON_HALF_HEIGHT = 34
+MENU_MOUSE_HIT_HALF_WIDTH = 340
+MENU_MOUSE_HIT_HALF_HEIGHT = 54
 MENU_ITEMS = (("게임 시작", 500), ("종료", 380), ("설정", 260))
 SETTINGS_ITEM_Y = (510, 390, 270)
 MAP = (
@@ -150,15 +152,18 @@ def menu_item_at(screen: str, x: float, y: float) -> int | None:
         if screen == "menu"
         else SETTINGS_ITEM_Y
     )
-    for index, center_y in enumerate(item_positions):
-        if (
-            MENU_BUTTON_CENTER_X - MENU_BUTTON_HALF_WIDTH <= x
-            <= MENU_BUTTON_CENTER_X + MENU_BUTTON_HALF_WIDTH
-            and center_y - MENU_BUTTON_HALF_HEIGHT <= y
-            <= center_y + MENU_BUTTON_HALF_HEIGHT
-        ):
-            return index
-    return None
+    if not (
+        MENU_BUTTON_CENTER_X - MENU_MOUSE_HIT_HALF_WIDTH <= x
+        <= MENU_BUTTON_CENTER_X + MENU_MOUSE_HIT_HALF_WIDTH
+    ):
+        return None
+
+    nearest_item = min(
+        enumerate(item_positions),
+        key=lambda item: abs(y - item[1]),
+    )
+    index, center_y = nearest_item
+    return index if abs(y - center_y) <= MENU_MOUSE_HIT_HALF_HEIGHT else None
 
 
 def tile_origin(column: int, row: int) -> tuple[float, float]:
