@@ -557,7 +557,28 @@ class MonsterPose(NamedTuple):
     y: float
     moving_left: bool
     frame: int
-    wing_lift: float
+    lift: float
+
+
+class MonsterArt(NamedTuple):
+    cell_size: int
+    first_frame: int
+    frame_count: int
+    fps: int
+    draw_size: int
+    lift: float = 0.0
+    bob: float = 0.0
+    faces_left: bool = False
+
+
+MONSTER_ART = {
+    "bat": MonsterArt(16, 0, 8, 14, 58, lift=11, bob=3),
+    "beetle": MonsterArt(16, 0, 8, 12, 54),
+    "spider": MonsterArt(16, 0, 12, 10, 57),
+    "rat": MonsterArt(32, 20, 10, 12, 68, lift=20, faces_left=True),
+    "skeleton": MonsterArt(32, 4, 4, 8, 53, lift=7),
+    "slime": MonsterArt(16, 0, 10, 10, 59),
+}
 
 
 class Patrol:
@@ -581,20 +602,21 @@ class Patrol:
             leg_time -= duration
         progress = leg_time / duration
         dx, dy = end[0] - start[0], end[1] - start[1]
-        frame = int(clock * (14 if self.kind == "bat" else 12)) % 8
-        wing_lift = 11 + 3 * sin(clock * 10) if self.kind == "bat" else 0.0
+        art = MONSTER_ART[self.kind]
+        frame = int(clock * art.fps) % art.frame_count
+        lift = art.lift + art.bob * sin(clock * 10)
         return MonsterPose(self.kind, start[0] + dx * progress, start[1] + dy * progress,
-                           dx < 0, frame, wing_lift)
+                           dx < 0, frame, lift)
 
 
 # 첫 라운드에는 두 구역을 순찰하고, 이후 라운드마다 새 구역에 한 마리씩 합류한다.
 MONSTER_PATROLS = (
     Patrol("bat", 1, ((3, 3), (8, 3), (8, 6), (3, 6)), 118, 0.5),
     Patrol("beetle", 1, ((17, 7), (22, 7), (22, 8), (17, 8)), 86, 1.6),
-    Patrol("bat", 2, ((11, 8), (15, 8), (15, 10), (11, 10)), 105, 2.8),
-    Patrol("beetle", 3, ((16, 11), (21, 11), (21, 12), (16, 12)), 92, 0.8),
-    Patrol("bat", 4, ((11, 2), (17, 2), (17, 3), (11, 3)), 112, 1.4),
-    Patrol("beetle", 5, ((2, 7), (6, 7), (6, 8), (2, 8)), 100, 1.0),
+    Patrol("spider", 2, ((11, 8), (15, 8), (15, 10), (11, 10)), 105, 2.8),
+    Patrol("rat", 3, ((16, 11), (21, 11), (21, 12), (16, 12)), 92, 0.8),
+    Patrol("skeleton", 4, ((11, 2), (17, 2), (17, 3), (11, 3)), 112, 1.4),
+    Patrol("slime", 5, ((2, 7), (6, 7), (6, 8), (2, 8)), 100, 1.0),
 )
 
 
@@ -828,13 +850,15 @@ def draw_ghost(sprite: Image, ghost: Ghost) -> None:
 
 
 def draw_monster(sprite: Image, monster: MonsterPose) -> None:
-    size = 58 if monster.kind == "bat" else 54
+    art = MONSTER_ART[monster.kind]
+    cell = art.cell_size
+    row, col = divmod(art.first_frame + monster.frame, sprite.w // cell)
     draw_circle(monster.x, monster.y - 8, 11, 9, 10, 13, 165, filled=True)
     draw_circle(monster.x, monster.y - 1, 18, 222, 148, 79, 92)
     sprite.clip_composite_draw(
-        monster.frame * 16, 0, 16, 16, 0,
-        "h" if monster.moving_left else "",
-        monster.x, monster.y + monster.wing_lift, size, size,
+        col * cell, sprite.h - (row + 1) * cell, cell, cell, 0,
+        "h" if monster.moving_left != art.faces_left else "",
+        monster.x, monster.y + monster.lift, art.draw_size, art.draw_size,
     )
 
 
@@ -1169,7 +1193,7 @@ def main() -> None:
     props = load_image(str(assets / "cellar_props.png"))
     pico2d.SDL_SetTextureScaleMode(props.texture, pico2d.SDL_ScaleModeNearest)
     monster_sprites = {
-        kind: load_image(str(assets / f"cellar_{kind}.png")) for kind in ("bat", "beetle")
+        kind: load_image(str(assets / f"cellar_{kind}.png")) for kind in MONSTER_ART
     }
     for monster_sprite in monster_sprites.values():
         pico2d.SDL_SetTextureScaleMode(monster_sprite.texture, pico2d.SDL_ScaleModeNearest)

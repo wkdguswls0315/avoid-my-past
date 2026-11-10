@@ -1,4 +1,12 @@
-Cellar bat and beetle by SpritePilot, Creatures Pack.
+Cellar bat, beetle, spider and slime by SpritePilot, Creatures Pack.
 https://spritepilot.com/free-game-assets/creatures
 CC0 1.0 Universal: https://creativecommons.org/publicdomain/zero/1.0/
-Original 16 px, eight-frame PNG strips.
+
+Rat walk animation from "Animated Rat and Bat" by Calciumtrice.
+https://opengameart.org/content/animated-rat-and-bat
+CC BY 3.0: https://creativecommons.org/licenses/by/3.0/
+The game uses the rat walk row of the original, unmodified sheet.
+
+Skeleton walk animation from "pixel art skeleton" by tbbk.
+https://opengameart.org/content/pixel-art-skeleton
+CC0 1.0 Universal: https://creativecommons.org/publicdomain/zero/1.0/
