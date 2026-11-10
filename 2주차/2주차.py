@@ -60,14 +60,14 @@ MAP = (
     "#.......................#",
     "#.....BBBB..............#",
     "#.......................#",
-    "#.................KK....#",
+    "#.........S.......KK....#",
     "#...KK.......O..........#",
-    "#............O..........#",
-    "#............O..........#",
+    "#............O..S.......#",
+    "#............O..R.......#",
     "#.......................#",
-    "#.................CCCC..#",
+    "#.....SR..........CCCC..#",
     "#........JJ.............#",
-    "#.......................#",
+    "#.............R.........#",
     "#.......................#",
     "#########################",
 )
@@ -79,21 +79,25 @@ START_TILE = (2, 12)
 GOAL_TILE = (22, 1)
 TEST_DOOR_TILE = (3, 12)
 TEST_DOOR_RADIUS = 33
-SOLID_TILES = "#OBCKJ"
-PROP_SPRITES = {"B": (21, 19), "C": (22, 19), "J": (23, 19), "K": (21, 18)}
+PROP_SPRITES = {
+    "B": (21, 19), "C": (22, 19), "J": (23, 19), "K": (21, 18),
+    "S": (23, 18), "R": (16, 13),  # 석상, 무너진 돌
+}
+SOLID_TILES = "#O" + "".join(PROP_SPRITES)
 LAMP_TILES = ((3, 11, 340), (8, 3, 340), (11, 8, 365),
               (14, 4, 340), (20, 8, 355), (21, 2, 335))
 PLAYER_START = (
     (START_TILE[0] + 0.5) * TILE_WIDTH,
     (len(MAP) - START_TILE[1] - 0.5) * TILE_HEIGHT,
 )
-PLAYER_RADIUS = 13
+CHARACTER_SCALE = 1.1
+PLAYER_RADIUS = 14
 PLAYER_SPEED = 205
 START_SAFE_RADIUS = 60
-GHOST_HIT_RADIUS = 22
+GHOST_HIT_RADIUS = 24
 FIRST_GHOST_DELAY = 1.0
 GHOST_INTERVAL = 1.25
-GHOST_BASE_SPEED = 1.1
+GHOST_BASE_SPEED = 1.2
 PRESSURE_STEPS = (12.0, 22.0, 34.0)
 PRESSURE_STEP = 0.2
 MIRROR_START = 22.0
@@ -251,9 +255,13 @@ def draw_prop(props: Image, column: int, row: int, tile: str) -> None:
     x, y = tile_center(column, row)
     source_x, source_y = PROP_SPRITES[tile]
     # 오브젝트의 받침을 타일에 맞춰, 충돌 범위를 화면에서 알아볼 수 있게 한다.
-    fill(x - 31, y - 29, 62, 56, (38, 34, 38))
-    fill(x - 29, y - 26, 58, 4, (122, 99, 70))
-    props.clip_draw(source_x * 16, props.h - (source_y + 1) * 16, 16, 16, x, y + 2, 56, 56)
+    stone = tile in "SR"
+    base = (46, 46, 53) if stone else (38, 34, 38)
+    trim = (120, 118, 124) if stone else (122, 99, 70)
+    fill(x - 31, y - 29, 62, 56, base)
+    fill(x - 29, y - 26, 58, 4, trim)
+    size = 60 if stone else 56
+    props.clip_draw(source_x * 16, props.h - (source_y + 1) * 16, 16, 16, x, y + 2, size, size)
 
 
 def draw_cellar_details() -> None:
@@ -520,7 +528,8 @@ class Cellar:
 def draw_player(sprite: Image, x: float, y: float, facing: str, frame: int) -> None:
     sprite.clip_draw(
         frame * SPRITE_FRAME_SIZE, SPRITE_ROWS[facing],
-        SPRITE_FRAME_SIZE, SPRITE_FRAME_SIZE, x, y, TILE_WIDTH, TILE_HEIGHT,
+        SPRITE_FRAME_SIZE, SPRITE_FRAME_SIZE, x, y,
+        TILE_WIDTH * CHARACTER_SCALE, TILE_HEIGHT * CHARACTER_SCALE,
     )
 
 
