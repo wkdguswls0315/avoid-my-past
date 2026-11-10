@@ -652,16 +652,20 @@ def reflected_route(route: list[MovementSample]) -> list[MovementSample]:
             abs(tile[0] - col) + abs(tile[1] - row), abs(tile[1] - row), tile,
         ))
 
+    def neighbors(tile):
+        x, y = tile
+        return ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1))
+
     def connect(start, goal):
         parent = {start: None}
         queue = deque([start])
         while goal not in parent:
             if not queue:
                 raise ValueError("The reflected route crosses disconnected cellar tiles")
-            x, y = queue.popleft()
-            for neighbor in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+            current = queue.popleft()
+            for neighbor in neighbors(current):
                 if neighbor in walkable and neighbor not in parent:
-                    parent[neighbor] = (x, y)
+                    parent[neighbor] = current
                     queue.append(neighbor)
         path = [goal]
         while path[-1] != start:
@@ -671,6 +675,16 @@ def reflected_route(route: list[MovementSample]) -> list[MovementSample]:
     # 좌우가 비대칭인 곳은 반전 좌표에 가장 가까운 바닥을 잇는다.
     last_tile = safe_tile(direct[0])
     result = [MovementSample(0.0, *tile_center(*last_tile), direct[0].facing, 0)]
+
+    def add_leg(tile, segment_time: float) -> None:
+        previous = result[-1]
+        x, y = tile_center(*tile)
+        dx, dy = x - previous.x, y - previous.y
+        facing = ("right" if dx > 0 else "left") if dx else ("up" if dy > 0 else "down")
+        result[-1] = previous._replace(facing=facing, frame=1)
+        elapsed = previous.elapsed + max(segment_time, hypot(dx, dy) / PLAYER_SPEED)
+        result.append(MovementSample(elapsed, x, y, facing, 0))
+
     last_change = 0.0
     for sample in direct[1:]:
         tile = safe_tile(sample)
@@ -678,18 +692,13 @@ def reflected_route(route: list[MovementSample]) -> list[MovementSample]:
             continue
         path = connect(last_tile, tile)
         segment_time = (sample.elapsed - last_change) / (len(path) - 1)
-        for column, row in path[1:]:
-            previous = result[-1]
-            x, y = tile_center(column, row)
-            dx, dy = x - previous.x, y - previous.y
-            facing = ("right" if dx > 0 else "left") if dx else ("up" if dy > 0 else "down")
-            result[-1] = previous._replace(facing=facing, frame=1)
-            elapsed = previous.elapsed + max(segment_time, hypot(dx, dy) / PLAYER_SPEED)
-            result.append(MovementSample(elapsed, x, y, facing, 0))
+        for next_tile in path[1:]:
+            add_leg(next_tile, segment_time)
         last_tile, last_change = tile, sample.elapsed
-    if direct[-1].elapsed > last_change:
-        previous = result[-1]
-        result.append(previous._replace(elapsed=previous.elapsed + direct[-1].elapsed - last_change))
+    if len(result) == 1:
+        # 짧은 경로가 반전 후 한 칸에 겹쳐도 인접한 바닥까지 왕복한다.
+        next_tile = next(tile for tile in neighbors(last_tile) if tile in walkable)
+        add_leg(next_tile, 0.0)
     return result
 
 
@@ -714,21 +723,23 @@ class CellarRun:
         self.facing, self.frame = "down", 0
         self.elapsed = self.animation_time = 0.0
         self.has_key = False
-        self.recording = [self.sample()]
+        self.recording = [self.sample(0.0)]
         self.ghosts: list[Ghost] = []
         self.patrols = [patrol for patrol in MONSTER_PATROLS if patrol.first_round <= self.round_number]
         self.monsters = [patrol.pose_at(0.0) for patrol in self.patrols]
         self.slow_until = self.monster_contact_ready = 0.0
         self.notice, self.notice_until = notice, 3.0
 
-    def sample(self) -> MovementSample:
-        return MovementSample(self.elapsed, self.x, self.y, self.facing, self.frame)
+    def sample(self, movement_elapsed: float) -> MovementSample:
+        return MovementSample(movement_elapsed, self.x, self.y, self.facing, self.frame)
 
     def near_test_door(self) -> bool:
         x, y = tile_center(*TEST_DOOR_TILE)
         return hypot(self.x - x, self.y - y) <= TEST_DOOR_RADIUS
 
     def complete_round(self) -> str:
+        if len(self.recording) < 2:
+            return "playing"
         self.routes.append(self.recording)
         if len(self.routes) == len(ROUNDS):
             return "clear"
@@ -769,7 +780,9 @@ class CellarRun:
                 self.facing = "up" if move_y > 0 else "down"
             self.animation_time += move_time
             self.frame = int(self.animation_time * 8) % 4
-        self.recording.append(self.sample())
+            # 라운드 시계와 별도로, 좌표가 바뀐 프레임의 시간만 재생 기록에 더한다.
+            movement_elapsed = self.recording[-1].elapsed + delta_time
+            self.recording.append(self.sample(movement_elapsed))
         self.update_ghosts()
         self.monsters = [patrol.pose_at(self.elapsed) for patrol in self.patrols]
         if self.elapsed >= self.monster_contact_ready and any(
