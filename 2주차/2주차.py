@@ -23,7 +23,6 @@ from pico2d import (
     SDLK_UP,
     SDLK_a,
     SDLK_d,
-    SDLK_r,
     SDLK_s,
     SDLK_w,
     SDL_BUTTON_LEFT,
@@ -60,13 +59,13 @@ MAP = (
     "#.......................#",
     "#.....BBBB..............#",
     "#.......................#",
-    "#.......................#",
-    "#............O..........#",
+    "#.................KK....#",
+    "#...KK.......O..........#",
     "#............O..........#",
     "#............O..........#",
     "#.......................#",
     "#.................CCCC..#",
-    "#.......................#",
+    "#........CC.............#",
     "#.......................#",
     "#.......................#",
     "#########################",
@@ -77,7 +76,7 @@ MAP_OFFSET_X = 0
 MAP_OFFSET_Y = 0
 START_TILE = (2, 12)
 GOAL_TILE = (22, 1)
-SOLID_TILES = "#OBC"
+SOLID_TILES = "#OBCK"
 LAMP_TILES = ((3, 11, 340), (8, 3, 340), (11, 8, 365),
               (14, 4, 340), (20, 8, 355), (21, 2, 335))
 PLAYER_START = (
@@ -85,7 +84,19 @@ PLAYER_START = (
     (len(MAP) - START_TILE[1] - 0.5) * TILE_HEIGHT,
 )
 PLAYER_RADIUS = 13
-PLAYER_SPEED = 240
+PLAYER_SPEED = 205
+START_SAFE_RADIUS = 60
+GHOST_HIT_RADIUS = 22
+FIRST_GHOST_DELAY = 1.0
+GHOST_INTERVAL = 1.25
+# 열쇠가 저장고의 서로 다른 구역에 나타나도록 배치한다.
+ROUNDS = (
+    ((17, 11), 54),
+    ((4, 3), 52),
+    ((15, 4), 50),
+    ((5, 8), 50),
+    ((21, 6), 48),
+)
 SPRITE_FRAME_SIZE = 320
 SPRITE_ROWS = {
     "down": 3 * SPRITE_FRAME_SIZE,
@@ -229,7 +240,7 @@ def draw_tile(column: int, row: int, tile: str) -> None:
             draw_line(x + dx - 8, y + 38, x + dx + 8, y + 38, 104, 66, 47)
             draw_line(x + dx - 10, y + 33, x + dx + 10, y + 33, 104, 66, 47)
             fill(x + dx - 2, y + 35, 5, 3, (64, 53, 48))
-    elif tile == "C":
+    elif tile in "CK":
         fill(x + 8, y + 5, 52, 51, (41, 30, 29))
         fill(x + 6, y + 10, 50, 45, (132, 82, 51))
         for plank in range(4):
@@ -238,6 +249,8 @@ def draw_tile(column: int, row: int, tile: str) -> None:
         draw_line(x + 10, y + 13, x + 54, y + 51, 187, 125, 76)
         fill(x + 6, y + 10, 50, 5, (96, 57, 40))
         fill(x + 6, y + 51, 50, 4, (186, 129, 82))
+        if tile == "K":
+            fill(x + 30, y + 20, 7, 22, (212, 161, 76))
 
 
 def draw_cellar_details() -> None:
@@ -456,7 +469,7 @@ class MovementSample(NamedTuple):
 
 
 def replay_at(route: list[MovementSample], elapsed: float) -> MovementSample | None:
-    if not route or elapsed >= route[-1].elapsed:
+    if not route or not 0.0 <= elapsed < route[-1].elapsed:
         return None
     index = bisect_right(route, elapsed, key=lambda sample: sample.elapsed) - 1
     start, end = route[index], route[index + 1]
@@ -470,6 +483,76 @@ def replay_at(route: list[MovementSample], elapsed: float) -> MovementSample | N
     )
 
 
+class CellarRun:
+    def __init__(self) -> None:
+        self.routes: list[list[MovementSample]] = []
+        self.reset()
+
+    @property
+    def round_number(self) -> int:
+        return min(len(self.routes) + 1, len(ROUNDS))
+
+    def reset(self, notice: str = "") -> None:
+        self.routes.clear()
+        self.begin_round(notice)
+
+    def begin_round(self, notice: str = "") -> None:
+        self.key_tile, self.time_limit = ROUNDS[self.round_number - 1]
+        self.x, self.y = PLAYER_START
+        self.facing, self.frame = "down", 0
+        self.elapsed = self.animation_time = 0.0
+        self.has_key = False
+        self.recording = [self.sample()]
+        self.ghosts: list[MovementSample] = []
+        self.notice, self.notice_until = notice, 3.0
+
+    def sample(self) -> MovementSample:
+        return MovementSample(self.elapsed, self.x, self.y, self.facing, self.frame)
+
+    def update(self, move_x: int, move_y: int, delta_time: float) -> str:
+        if delta_time <= 0.0:
+            return "playing"
+        self.elapsed += delta_time
+        previous = self.x, self.y
+        self.x, self.y = move_player(self.x, self.y, move_x, move_y, delta_time)
+        self.frame = 0
+        if (self.x, self.y) != previous:
+            if abs(move_x) > abs(move_y):
+                self.facing = "right" if move_x > 0 else "left"
+            else:
+                self.facing = "up" if move_y > 0 else "down"
+            self.animation_time += delta_time
+            self.frame = int(self.animation_time * 8) % 4
+        self.recording.append(self.sample())
+        self.ghosts = [
+            ghost for index, route in enumerate(self.routes)
+            if (ghost := replay_at(route, self.elapsed - FIRST_GHOST_DELAY - index * GHOST_INTERVAL))
+            is not None
+        ]
+        # 같은 위치에서 출발한 기록이 겹쳐도 계단 앞에서는 안전하다.
+        if hypot(self.x - PLAYER_START[0], self.y - PLAYER_START[1]) > START_SAFE_RADIUS:
+            for ghost in self.ghosts:
+                if hypot(self.x - ghost.x, self.y - ghost.y) < GHOST_HIT_RADIUS:
+                    self.reset("분신과 접촉했습니다. 1라운드부터 다시 시작합니다.")
+                    return "reset"
+        if self.elapsed >= self.time_limit:
+            self.reset("시간이 끝났습니다. 1라운드부터 다시 시작합니다.")
+            return "reset"
+        key_x, key_y = tile_center(*self.key_tile)
+        if not self.has_key and hypot(self.x - key_x, self.y - key_y) < 24:
+            self.has_key = True
+            self.notice = "열쇠를 찾았습니다. 북동쪽 철문으로 가세요."
+            self.notice_until = self.elapsed + 2.5
+        door_x, door_y = tile_center(*GOAL_TILE)
+        if self.has_key and hypot(self.x - door_x, self.y - door_y) < 25:
+            self.routes.append(self.recording)
+            if len(self.routes) == len(ROUNDS):
+                return "clear"
+            self.begin_round("새 열쇠를 찾으세요. 분신은 차례로 출발합니다.")
+            return "next"
+        return "playing"
+
+
 def draw_ghost(sprite: Image, sample: MovementSample) -> None:
     draw_circle(sample.x, sample.y, PLAYER_RADIUS + 2, 102, 220, 240, 180)
     pico2d.SDL_SetTextureColorMod(sprite.texture, 115, 245, 255)
@@ -477,6 +560,29 @@ def draw_ghost(sprite: Image, sample: MovementSample) -> None:
     draw_player(sprite, sample.x, sample.y, sample.facing, sample.frame)
     sprite.opacify(1.0)
     pico2d.SDL_SetTextureColorMod(sprite.texture, 255, 255, 255)
+
+
+def draw_run_hud(menu_font: Font, hint_font: Font, run: CellarRun) -> None:
+    fill(12, 847, 740, 44, (23, 20, 24, 228))
+    draw_rectangle(12, 847, 752, 891, 118, 96, 68, filled=False)
+    menu_font.draw(27, 867, "대저택 지하 저장고", (239, 209, 158))
+    remaining = max(0, int(run.time_limit - run.elapsed + 0.999))
+    key = "YES" if run.has_key else "NO"
+    hint_font.draw(
+        316, 865,
+        f"ROUND {run.round_number}/{len(ROUNDS)}   TIME {remaining:02d}s   KEY {key}",
+        (224, 210, 187),
+    )
+    if run.notice and run.elapsed < run.notice_until:
+        fill(355, 10, 890, 45, (23, 20, 24, 230))
+        draw_centered_text(menu_font, run.notice, 800, 32, (239, 209, 158))
+
+
+def draw_key(x: float, y: float) -> None:
+    draw_circle(x - 8, y + 2, 7, 255, 211, 102)
+    draw_line(x - 1, y + 2, x + 13, y + 2, 255, 211, 102)
+    draw_line(x + 8, y + 2, x + 8, y - 4, 255, 211, 102)
+    draw_line(x + 13, y + 2, x + 13, y - 6, 255, 211, 102)
 
 
 def sdl_error_message() -> str:
@@ -756,13 +862,7 @@ def main() -> None:
         str(Path(__file__).resolve().parents[1] / "assets" / "player_sprite.png")
     )
     cellar = Cellar()
-    player_x, player_y = PLAYER_START
-    facing = "down"
-    animation_time = 0.0
-    frame = 0
-    elapsed = 0.0
-    recording = [MovementSample(0.0, player_x, player_y, facing, frame)]
-    replay: list[MovementSample] = []
+    run = CellarRun()
     held_keys: set[int] = set()
     previous_time = perf_counter()
     running = True
@@ -796,17 +896,12 @@ def main() -> None:
                     elif screen == "pause":
                         screen = "game"
                         pause_menu_open = False
+                    elif screen == "clear":
+                        screen = "menu"
                     else:
                         running = False
-                elif screen == "game" and event.key == SDLK_r and len(recording) > 1:
-                    replay = recording
-                    player_x, player_y = PLAYER_START
-                    facing = "down"
-                    animation_time = elapsed = 0.0
-                    frame = 0
-                    recording = [MovementSample(0.0, player_x, player_y, facing, frame)]
-                    held_keys.clear()
-                    delta_time = 0.0
+                elif screen == "clear" and event.key in (SDLK_RETURN, SDLK_KP_ENTER):
+                    screen = "menu"
                 elif screen == "game" and event.key in KEY_DIRECTIONS:
                     held_keys.add(event.key)
                 elif screen == "menu" and event.key in (SDLK_UP, SDLK_w):
@@ -824,9 +919,7 @@ def main() -> None:
                 elif screen == "menu" and event.key in (SDLK_RETURN, SDLK_KP_ENTER):
                     if selected_menu_item == 0:
                         screen = "game"
-                        player_x, player_y = PLAYER_START
-                        facing = "down"
-                        animation_time = 0.0
+                        run.reset("열쇠를 찾아 북동쪽 철문으로 가세요.")
                         held_keys.clear()
                     elif selected_menu_item == 1:
                         running = False
@@ -874,9 +967,7 @@ def main() -> None:
                     selected_menu_item = clicked_item
                     if clicked_item == 0:
                         screen = "game"
-                        player_x, player_y = PLAYER_START
-                        facing = "down"
-                        animation_time = 0.0
+                        run.reset("열쇠를 찾아 북동쪽 철문으로 가세요.")
                         held_keys.clear()
                     elif clicked_item == 1:
                         running = False
@@ -906,38 +997,22 @@ def main() -> None:
         if screen == "game":
             move_x = sum(KEY_DIRECTIONS[key][0] for key in held_keys)
             move_y = sum(KEY_DIRECTIONS[key][1] for key in held_keys)
-            is_moving = move_x != 0 or move_y != 0
+            result = run.update(move_x, move_y, delta_time)
+            if result != "playing":
+                held_keys.clear()
+            if result == "clear":
+                screen = "clear"
 
-            if is_moving:
-                player_x, player_y = move_player(
-                    player_x, player_y, move_x, move_y, delta_time
-                )
-                if abs(move_x) > abs(move_y):
-                    facing = "right" if move_x > 0 else "left"
-                else:
-                    facing = "up" if move_y > 0 else "down"
-                animation_time += delta_time
-
-            frame = int(animation_time * 8) % 4 if is_moving else 0
-            if delta_time > 0.0:
-                # 정지한 프레임도 저장해야 분신이 같은 시간만큼 기다린다.
-                elapsed += delta_time
-                recording.append(MovementSample(elapsed, player_x, player_y, facing, frame))
-
-        if screen in ("game", "pause") or (screen == "settings" and pause_menu_open):
+        if screen in ("game", "pause", "clear") or (screen == "settings" and pause_menu_open):
             cellar.draw_background()
-            cellar.draw_shadows(player_x, player_y)
-            ghost = replay_at(replay, elapsed)
-            if ghost is not None:
+            cellar.draw_shadows(run.x, run.y)
+            for ghost in run.ghosts:
                 draw_ghost(sprite, ghost)
-            draw_player(sprite, player_x, player_y, facing, frame)
+            draw_player(sprite, run.x, run.y, run.facing, run.frame)
             cellar.apply_lighting()
-            fill(12, 847, 576, 44, (23, 20, 24, 228))
-            draw_rectangle(12, 847, 588, 891, 118, 96, 68, filled=False)
-            menu_font.draw(27, 867, "대저택 지하 저장고", (239, 209, 158))
-            hint_font.draw(
-                320, 865, "R : REPLAY LAST ROUTE", (205, 188, 163)
-            )
+            if not run.has_key:
+                draw_key(*tile_center(*run.key_tile))
+            draw_run_hud(menu_font, hint_font, run)
 
         if screen == "pause":
             draw_pause_overlay(menu_font, hint_font, selected_pause_item)
@@ -950,6 +1025,11 @@ def main() -> None:
             draw_menu(
                 title_font, menu_font, hint_font, selected_menu_item, sprite
             )
+        elif screen == "clear":
+            fill(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, (13, 11, 16, 175))
+            draw_centered_text(heading_font, "지하 저장고 탈출", 800, 490, (239, 209, 158))
+            draw_centered_text(menu_font, "5라운드를 모두 통과했습니다.", 800, 423, (232, 226, 213))
+            draw_centered_text(hint_font, "ENTER / ESC  TO MAIN MENU", 800, 366, (205, 188, 163))
         update_canvas()
 
     cellar.close()
