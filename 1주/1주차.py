@@ -22,6 +22,9 @@ from pico2d import (
     SDLK_d,
     SDLK_s,
     SDLK_w,
+    SDL_BUTTON_LEFT,
+    SDL_MOUSEBUTTONDOWN,
+    SDL_MOUSEMOTION,
     Mix_Volume,
     Mix_VolumeMusic,
     close_canvas,
@@ -39,6 +42,11 @@ SCREEN_WIDTH = 1600
 SCREEN_HEIGHT = 900
 WINDOW_WIDTH = 1280
 WINDOW_HEIGHT = 720
+MENU_BUTTON_CENTER_X = 610
+MENU_BUTTON_HALF_WIDTH = 290
+MENU_BUTTON_HALF_HEIGHT = 34
+MENU_ITEMS = (("게임 시작", 500), ("종료", 380), ("설정", 260))
+SETTINGS_ITEM_Y = (510, 390, 270)
 MAP = (
     "#########################",
     "#.......................#",
@@ -121,6 +129,36 @@ def move_player(
     if not is_blocked(x, next_y):
         y = next_y
     return x, y
+
+
+def window_to_canvas_position(x: int, y: int) -> tuple[float, float]:
+    logical_x = ctypes.c_float()
+    logical_y = ctypes.c_float()
+    pico2d.SDL_RenderWindowToLogical(
+        pico2d_core.renderer,
+        x,
+        y,
+        ctypes.byref(logical_x),
+        ctypes.byref(logical_y),
+    )
+    return logical_x.value, SCREEN_HEIGHT - logical_y.value
+
+
+def menu_item_at(screen: str, x: float, y: float) -> int | None:
+    item_positions = (
+        tuple(item_y for _, item_y in MENU_ITEMS)
+        if screen == "menu"
+        else SETTINGS_ITEM_Y
+    )
+    for index, center_y in enumerate(item_positions):
+        if (
+            MENU_BUTTON_CENTER_X - MENU_BUTTON_HALF_WIDTH <= x
+            <= MENU_BUTTON_CENTER_X + MENU_BUTTON_HALF_WIDTH
+            and center_y - MENU_BUTTON_HALF_HEIGHT <= y
+            <= center_y + MENU_BUTTON_HALF_HEIGHT
+        ):
+            return index
+    return None
 
 
 def tile_origin(column: int, row: int) -> tuple[float, float]:
@@ -287,8 +325,10 @@ def draw_menu_button(
     selected: bool,
     center_x: float,
 ) -> None:
-    left, right = center_x - 290, center_x + 290
-    bottom, top = y - 34, y + 34
+    left = center_x - MENU_BUTTON_HALF_WIDTH
+    right = center_x + MENU_BUTTON_HALF_WIDTH
+    bottom = y - MENU_BUTTON_HALF_HEIGHT
+    top = y + MENU_BUTTON_HALF_HEIGHT
     draw_rectangle(left, bottom, right, top, 15, 29, 44, filled=True)
     if selected:
         draw_rectangle(left, bottom, right, top, 78, 148, 151, filled=False)
@@ -410,11 +450,9 @@ def draw_menu(
 ) -> None:
     draw_menu_background(sprite)
     draw_menu_title(title_font, hint_font)
-    for index, (label, y) in enumerate(
-        (("게임 시작", 500), ("종료", 380), ("설정", 260))
-    ):
+    for index, (label, y) in enumerate(MENU_ITEMS):
         draw_menu_button(
-            menu_font, label, y, index == selected_item, 610
+            menu_font, label, y, index == selected_item, MENU_BUTTON_CENTER_X
         )
     draw_menu_footer(
         hint_font, "USE  UP / DOWN  TO SELECT       ENTER  TO CONFIRM"
@@ -439,9 +477,9 @@ def draw_settings(
         f"화면 모드   {'전체화면' if fullscreen else '창화면 (1280 x 720)'}",
         "돌아가기",
     )
-    for index, (label, y) in enumerate(zip(options, (510, 390, 270))):
+    for index, (label, y) in enumerate(zip(options, SETTINGS_ITEM_Y)):
         draw_menu_button(
-            menu_font, label, y, index == selected_item, 610
+            menu_font, label, y, index == selected_item, MENU_BUTTON_CENTER_X
         )
     draw_menu_footer(
         hint_font, "LEFT / RIGHT  OR  ENTER  TO CHANGE       ESC  TO RETURN"
@@ -522,6 +560,42 @@ def main() -> None:
                         sound_enabled = not sound_enabled
                         set_sound_enabled(sound_enabled)
                     elif selected_settings_item == 1:
+                        fullscreen = not fullscreen
+                        set_display_mode(fullscreen)
+                    else:
+                        screen = "menu"
+            elif event.type == SDL_MOUSEMOTION and screen in ("menu", "settings"):
+                mouse_x, mouse_y = window_to_canvas_position(event.x, event.y)
+                hovered_item = menu_item_at(screen, mouse_x, mouse_y)
+                if hovered_item is not None:
+                    if screen == "menu":
+                        selected_menu_item = hovered_item
+                    else:
+                        selected_settings_item = hovered_item
+            elif (
+                event.type == SDL_MOUSEBUTTONDOWN
+                and event.button == SDL_BUTTON_LEFT
+                and screen in ("menu", "settings")
+            ):
+                mouse_x, mouse_y = window_to_canvas_position(event.x, event.y)
+                clicked_item = menu_item_at(screen, mouse_x, mouse_y)
+                if clicked_item is not None and screen == "menu":
+                    selected_menu_item = clicked_item
+                    if clicked_item == 0:
+                        screen = "game"
+                        player_x, player_y = PLAYER_START
+                        animation_time = 0.0
+                        held_keys.clear()
+                    elif clicked_item == 1:
+                        running = False
+                    else:
+                        screen = "settings"
+                elif clicked_item is not None:
+                    selected_settings_item = clicked_item
+                    if clicked_item == 0:
+                        sound_enabled = not sound_enabled
+                        set_sound_enabled(sound_enabled)
+                    elif clicked_item == 1:
                         fullscreen = not fullscreen
                         set_display_mode(fullscreen)
                     else:
