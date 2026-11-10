@@ -103,6 +103,10 @@ PRESSURE_STEP = 0.2
 MIRROR_START = 22.0
 MIRROR_INTERVAL = 4.0
 MIRROR_GRACE = 1.2
+MONSTER_HIT_RADIUS = 28
+MONSTER_SLOW_SPEED = 0.65
+MONSTER_SLOW_DURATION = 1.0
+MONSTER_CONTACT_COOLDOWN = 2.2
 # 열쇠가 저장고의 서로 다른 구역에 나타나도록 배치한다.
 ROUNDS = (
     ((17, 11), 54),
@@ -547,6 +551,50 @@ class Ghost(NamedTuple):
     harmless: bool
 
 
+class MonsterPose(NamedTuple):
+    kind: str
+    x: float
+    y: float
+    moving_left: bool
+    frame: int
+    wing_lift: float
+
+
+class Patrol:
+    def __init__(self, kind: str, first_round: int, tiles, speed: float, phase: float) -> None:
+        self.kind = kind
+        self.first_round = first_round
+        self.phase = phase
+        points = [tile_center(*tile) for tile in tiles]
+        self.legs = [
+            (a, b, hypot(b[0] - a[0], b[1] - a[1]) / speed)
+            for a, b in zip(points, points[1:] + points[:1])
+        ]
+        self.duration = sum(leg[2] for leg in self.legs)
+
+    def pose_at(self, elapsed: float) -> MonsterPose:
+        clock = elapsed + self.phase
+        leg_time = clock % self.duration
+        for start, end, duration in self.legs:
+            if leg_time < duration:
+                break
+            leg_time -= duration
+        progress = leg_time / duration
+        dx, dy = end[0] - start[0], end[1] - start[1]
+        frame = int(clock * (14 if self.kind == "bat" else 12)) % 8
+        wing_lift = 11 + 3 * sin(clock * 10) if self.kind == "bat" else 0.0
+        return MonsterPose(self.kind, start[0] + dx * progress, start[1] + dy * progress,
+                           dx < 0, frame, wing_lift)
+
+
+# 먼저 저장고 북서쪽과 동쪽을 순찰하고, 3라운드부터 중앙 통로에 박쥐가 합류한다.
+MONSTER_PATROLS = (
+    Patrol("bat", 1, ((3, 3), (8, 3), (8, 6), (3, 6)), 118, 0.5),
+    Patrol("beetle", 1, ((17, 7), (22, 7), (22, 8), (17, 8)), 86, 1.6),
+    Patrol("bat", 3, ((11, 8), (15, 8), (15, 10), (11, 10)), 105, 2.8),
+)
+
+
 def pressure_clock(elapsed: float) -> float:
     # 단계가 바뀌어도 이미 진행한 재생 위치는 그대로 이어진다.
     return GHOST_BASE_SPEED * elapsed + PRESSURE_STEP * sum(
@@ -668,6 +716,9 @@ class CellarRun:
         self.has_key = False
         self.recording = [self.sample()]
         self.ghosts: list[Ghost] = []
+        self.patrols = [patrol for patrol in MONSTER_PATROLS if patrol.first_round <= self.round_number]
+        self.monsters = [patrol.pose_at(0.0) for patrol in self.patrols]
+        self.slow_until = self.monster_contact_ready = 0.0
         self.notice, self.notice_until = notice, 3.0
 
     def sample(self) -> MovementSample:
@@ -704,19 +755,31 @@ class CellarRun:
     def update(self, move_x: int, move_y: int, delta_time: float) -> str:
         if delta_time <= 0.0:
             return "playing"
+        # 이동 속도에만 감속을 적용한다. 제한 시간과 분신은 계속 진행한다.
+        slowed_time = min(delta_time, max(0.0, self.slow_until - self.elapsed))
+        move_time = delta_time - slowed_time * (1 - MONSTER_SLOW_SPEED)
         self.elapsed += delta_time
         previous = self.x, self.y
-        self.x, self.y = move_player(self.x, self.y, move_x, move_y, delta_time)
+        self.x, self.y = move_player(self.x, self.y, move_x, move_y, move_time)
         self.frame = 0
         if (self.x, self.y) != previous:
             if abs(move_x) > abs(move_y):
                 self.facing = "right" if move_x > 0 else "left"
             else:
                 self.facing = "up" if move_y > 0 else "down"
-            self.animation_time += delta_time
+            self.animation_time += move_time
             self.frame = int(self.animation_time * 8) % 4
         self.recording.append(self.sample())
         self.update_ghosts()
+        self.monsters = [patrol.pose_at(self.elapsed) for patrol in self.patrols]
+        if self.elapsed >= self.monster_contact_ready and any(
+            hypot(self.x - monster.x, self.y - monster.y) <= MONSTER_HIT_RADIUS
+            for monster in self.monsters
+        ):
+            self.slow_until = self.elapsed + MONSTER_SLOW_DURATION
+            self.monster_contact_ready = self.elapsed + MONSTER_CONTACT_COOLDOWN
+            self.notice = "몬스터와 부딪혀 잠시 느려졌습니다."
+            self.notice_until = self.slow_until
         # 같은 위치에서 출발한 기록이 겹쳐도 계단 앞에서는 안전하다.
         if hypot(self.x - PLAYER_START[0], self.y - PLAYER_START[1]) > START_SAFE_RADIUS:
             for ghost in self.ghosts:
@@ -746,6 +809,17 @@ def draw_ghost(sprite: Image, ghost: Ghost) -> None:
     draw_player(sprite, sample.x, sample.y, sample.facing, sample.frame)
     sprite.opacify(1.0)
     pico2d.SDL_SetTextureColorMod(sprite.texture, 255, 255, 255)
+
+
+def draw_monster(sprite: Image, monster: MonsterPose) -> None:
+    size = 58 if monster.kind == "bat" else 54
+    draw_circle(monster.x, monster.y - 8, 11, 9, 10, 13, 165, filled=True)
+    draw_circle(monster.x, monster.y - 1, 18, 222, 148, 79, 92)
+    sprite.clip_composite_draw(
+        monster.frame * 16, 0, 16, 16, 0,
+        "h" if monster.moving_left else "",
+        monster.x, monster.y + monster.wing_lift, size, size,
+    )
 
 
 def draw_test_door(hint_font: Font, nearby: bool) -> None:
@@ -784,6 +858,8 @@ def draw_run_hud(menu_font: Font, hint_font: Font, run: CellarRun) -> None:
     else:
         mirror_label = f"MIRRORS {mirrors}"
     hint_font.draw(1080, 865, mirror_label, (208, 147, 255))
+    if run.elapsed < run.slow_until:
+        hint_font.draw(1335, 865, "SLOWED", (246, 164, 96))
     if run.notice and run.elapsed < run.notice_until:
         fill(355, 10, 890, 45, (23, 20, 24, 230))
         draw_centered_text(menu_font, run.notice, 800, 32, (239, 209, 158))
@@ -1075,6 +1151,11 @@ def main() -> None:
     sprite = load_image(str(assets / "player_sprite.png"))
     props = load_image(str(assets / "cellar_props.png"))
     pico2d.SDL_SetTextureScaleMode(props.texture, pico2d.SDL_ScaleModeNearest)
+    monster_sprites = {
+        kind: load_image(str(assets / f"cellar_{kind}.png")) for kind in ("bat", "beetle")
+    }
+    for monster_sprite in monster_sprites.values():
+        pico2d.SDL_SetTextureScaleMode(monster_sprite.texture, pico2d.SDL_ScaleModeNearest)
     cellar = Cellar(props)
     run = CellarRun()
     held_keys: set[int] = set()
@@ -1231,6 +1312,8 @@ def main() -> None:
             cellar.apply_lighting()
             cellar.draw_lamp_glints(run.elapsed)
             draw_test_door(hint_font, run.near_test_door())
+            for monster in run.monsters:
+                draw_monster(monster_sprites[monster.kind], monster)
             for ghost in run.ghosts:
                 draw_ghost(sprite, ghost)
             if run.has_key:
