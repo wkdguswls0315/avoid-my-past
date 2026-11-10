@@ -76,6 +76,8 @@ MAP_OFFSET_X = 0
 MAP_OFFSET_Y = 0
 START_TILE = (2, 12)
 GOAL_TILE = (22, 1)
+TEST_DOOR_TILE = (3, 12)
+TEST_DOOR_RADIUS = 33
 SOLID_TILES = "#OBCKJ"
 PROP_SPRITES = {"B": (21, 19), "C": (22, 19), "J": (23, 19), "K": (21, 18)}
 LAMP_TILES = ((3, 11, 340), (8, 3, 340), (11, 8, 365),
@@ -564,6 +566,17 @@ class CellarRun:
     def sample(self) -> MovementSample:
         return MovementSample(self.elapsed, self.x, self.y, self.facing, self.frame)
 
+    def near_test_door(self) -> bool:
+        x, y = tile_center(*TEST_DOOR_TILE)
+        return hypot(self.x - x, self.y - y) <= TEST_DOOR_RADIUS
+
+    def complete_round(self) -> str:
+        self.routes.append(self.recording)
+        if len(self.routes) == len(ROUNDS):
+            return "clear"
+        self.begin_round("새 열쇠를 찾으세요. 분신은 차례로 출발합니다.")
+        return "next"
+
     def update(self, move_x: int, move_y: int, delta_time: float) -> str:
         if delta_time <= 0.0:
             return "playing"
@@ -600,11 +613,7 @@ class CellarRun:
             self.notice_until = self.elapsed + 2.5
         door_x, door_y = tile_center(*GOAL_TILE)
         if self.has_key and hypot(self.x - door_x, self.y - door_y) < 25:
-            self.routes.append(self.recording)
-            if len(self.routes) == len(ROUNDS):
-                return "clear"
-            self.begin_round("새 열쇠를 찾으세요. 분신은 차례로 출발합니다.")
-            return "next"
+            return self.complete_round()
         return "playing"
 
 
@@ -615,6 +624,18 @@ def draw_ghost(sprite: Image, sample: MovementSample) -> None:
     draw_player(sprite, sample.x, sample.y, sample.facing, sample.frame)
     sprite.opacify(1.0)
     pico2d.SDL_SetTextureColorMod(sprite.texture, 255, 255, 255)
+
+
+def draw_test_door(hint_font: Font, nearby: bool) -> None:
+    x, y = tile_center(*TEST_DOOR_TILE)
+    trim = (129, 224, 220) if nearby else (74, 140, 145)
+    fill(x - 21, y - 23, 42, 46, (27, 39, 45))
+    draw_rectangle(x - 20, y - 22, x + 20, y + 22, *trim)
+    fill(x - 13, y - 16, 26, 33, (35, 73, 79))
+    draw_line(x - 8, y + 9, x + 8, y + 9, *trim)
+    fill(x + 6, y - 4, 4, 4, trim)
+    label = "ENTER" if nearby else "TEST"
+    draw_centered_text(hint_font, label, x, y + 34, trim)
 
 
 def draw_run_hud(menu_font: Font, hint_font: Font, run: CellarRun) -> None:
@@ -965,6 +986,13 @@ def main() -> None:
                         running = False
                 elif screen == "clear" and event.key in (SDLK_RETURN, SDLK_KP_ENTER):
                     screen = "menu"
+                elif screen == "game" and event.key in (SDLK_RETURN, SDLK_KP_ENTER):
+                    if run.near_test_door():
+                        result = run.complete_round()
+                        held_keys.clear()
+                        delta_time = 0.0
+                        if result == "clear":
+                            screen = "clear"
                 elif screen == "game" and event.key in KEY_DIRECTIONS:
                     held_keys.add(event.key)
                 elif screen == "menu" and event.key in (SDLK_UP, SDLK_w):
@@ -1072,6 +1100,7 @@ def main() -> None:
             draw_player(sprite, run.x, run.y, run.facing, run.frame)
             cellar.apply_lighting()
             cellar.draw_lamp_glints(run.elapsed)
+            draw_test_door(hint_font, run.near_test_door())
             for ghost in run.ghosts:
                 draw_ghost(sprite, ghost)
             if run.has_key:
