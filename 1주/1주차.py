@@ -1,9 +1,7 @@
-from os import environ
 from pathlib import Path
 from time import perf_counter
 
 from pico2d import (
-    Font,
     SDL_KEYDOWN,
     SDL_KEYUP,
     SDL_QUIT,
@@ -20,7 +18,6 @@ from pico2d import (
     clear_canvas,
     draw_rectangle,
     get_events,
-    load_font,
     load_image,
     open_canvas,
     update_canvas,
@@ -50,7 +47,6 @@ TILE_HEIGHT = SCREEN_HEIGHT / len(MAP)
 MAP_OFFSET_X = 0
 MAP_OFFSET_Y = 0
 START_TILE = (2, 12)
-START_SIGN_TILE = (3, 12)
 GOAL_TILE = (22, 1)
 PLAYER_START = (
     (START_TILE[0] + 0.5) * TILE_WIDTH,
@@ -168,22 +164,16 @@ def draw_tile(column: int, row: int, tile: str) -> None:
         )
 
 
-def draw_start_sign(font: Font) -> None:
-    x, y = tile_origin(*START_SIGN_TILE)
-    center_x = x + TILE_WIDTH / 2
+def draw_start_pad() -> None:
+    center_x, center_y = PLAYER_START
     draw_rectangle(
-        center_x - 3, y + 5, center_x + 3, y + 29,
-        91, 58, 31, filled=True,
+        center_x - 24, center_y - 27, center_x + 24, center_y + 27,
+        34, 52, 68, filled=True,
     )
     draw_rectangle(
-        center_x - 27, y + 27, center_x + 27, y + 50,
-        72, 43, 24, filled=True,
+        center_x - 24, center_y - 27, center_x + 24, center_y + 27,
+        75, 151, 151, filled=False,
     )
-    draw_rectangle(
-        center_x - 24, y + 30, center_x + 24, y + 47,
-        177, 127, 66, filled=True,
-    )
-    font.draw(center_x - 12, y + 32, "출발", (255, 239, 190))
 
 
 def draw_goal_door() -> None:
@@ -216,20 +206,17 @@ def draw_goal_door() -> None:
     )
 
 
-def draw_map(start_sign_font: Font) -> None:
+def draw_map() -> None:
     clear_canvas()
     for row_index, row in enumerate(MAP):
         for column_index, tile in enumerate(row):
             draw_tile(column_index, row_index, tile)
-    draw_start_sign(start_sign_font)
+    draw_start_pad()
     draw_goal_door()
 
 
 def main() -> None:
     open_canvas(SCREEN_WIDTH, SCREEN_HEIGHT)
-    start_sign_font = load_font(
-        str(Path(environ["WINDIR"]) / "Fonts" / "malgun.ttf"), 12
-    )
     sprite = load_image(
         str(Path(__file__).resolve().parents[1] / "assets" / "player_sprite.png")
     )
@@ -270,7 +257,7 @@ def main() -> None:
                 facing = "up" if move_y > 0 else "down"
             animation_time += delta_time
 
-        draw_map(start_sign_font)
+        draw_map()
         frame = int(animation_time * 8) % 4 if is_moving else 0
         sprite.clip_draw(
             frame * SPRITE_FRAME_SIZE,
