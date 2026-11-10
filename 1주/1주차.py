@@ -4,8 +4,10 @@ from pathlib import Path
 from time import perf_counter
 
 import pico2d
+import pico2d.pico2d as pico2d_core
 from pico2d import (
     Font,
+    Image,
     SDL_KEYDOWN,
     SDL_KEYUP,
     SDL_QUIT,
@@ -234,7 +236,7 @@ def sdl_error_message() -> str:
 
 
 def set_display_mode(fullscreen: bool) -> None:
-    window = pico2d.window
+    window = pico2d_core.window
     flags = pico2d.SDL_WINDOW_FULLSCREEN_DESKTOP if fullscreen else 0
     if pico2d.SDL_SetWindowFullscreen(window, flags) != 0:
         raise RuntimeError(f"Could not change display mode: {sdl_error_message()}")
@@ -246,13 +248,13 @@ def set_display_mode(fullscreen: bool) -> None:
         )
 
     if pico2d.SDL_RenderSetLogicalSize(
-        pico2d.renderer, SCREEN_WIDTH, SCREEN_HEIGHT
+        pico2d_core.renderer, SCREEN_WIDTH, SCREEN_HEIGHT
     ) != 0:
         raise RuntimeError(f"Could not scale the game canvas: {sdl_error_message()}")
 
 
 def set_sound_enabled(enabled: bool) -> None:
-    if pico2d.audio_on:
+    if pico2d_core.audio_on:
         volume = 128 if enabled else 0
         Mix_Volume(-1, volume)
         Mix_VolumeMusic(volume)
@@ -279,58 +281,168 @@ def draw_centered_text(
 
 
 def draw_menu_button(
-    font: Font, label: str, y: float, selected: bool
+    font: Font,
+    hint_font: Font,
+    label: str,
+    hint: str,
+    y: float,
+    selected: bool,
+    center_x: float,
 ) -> None:
-    left, right = 540, 1060
-    bottom, top = y - 26, y + 34
+    left, right = center_x - 290, center_x + 290
+    bottom, top = y - 34, y + 34
+    draw_rectangle(left, bottom, right, top, 15, 29, 44, filled=True)
     if selected:
-        draw_rectangle(left, bottom, right, top, 34, 52, 68, filled=True)
-    draw_rectangle(left, bottom, right, top, 75, 151, 151, filled=False)
-    color = (245, 231, 199) if selected else (164, 182, 199)
-    draw_centered_text(font, label, SCREEN_WIDTH / 2, y - 10, color)
+        draw_rectangle(left, bottom, right, top, 78, 148, 151, filled=False)
+        draw_rectangle(left + 3, bottom + 3, right - 3, top - 3, 43, 74, 84, filled=False)
+        draw_rectangle(left + 12, bottom + 12, left + 16, top - 12, 208, 171, 106, filled=True)
+    else:
+        draw_rectangle(left, bottom, right, top, 42, 63, 76, filled=False)
+
+    color = (239, 222, 186) if selected else (171, 186, 197)
+    draw_centered_text(font, label, center_x - 45, y - 9, color)
+    draw_centered_text(
+        hint_font, hint, center_x + 185, y - 5,
+        (111, 145, 157) if selected else (84, 106, 120),
+    )
+
+
+def draw_menu_background(sprite: Image) -> None:
+    clear_canvas()
+    draw_rectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 10, 19, 34, filled=True)
+    for y, color in (
+        (520, (12, 24, 40)),
+        (620, (14, 27, 44)),
+        (720, (16, 29, 47)),
+        (820, (19, 33, 51)),
+    ):
+        draw_rectangle(0, y, SCREEN_WIDTH, y + 100, *color, filled=True)
+
+    for x, y, size in (
+        (130, 780, 4), (245, 620, 3), (370, 835, 5), (460, 710, 3),
+        (1010, 820, 4), (1090, 650, 3), (1435, 800, 4), (1510, 590, 3),
+    ):
+        draw_rectangle(x, y, x + size, y + size, 116, 153, 163, filled=True)
+
+    for x in (94, 1460):
+        draw_rectangle(x, 170, x + 46, 620, 14, 27, 42, filled=True)
+        draw_rectangle(x - 8, 595, x + 54, 620, 40, 61, 72, filled=True)
+        draw_rectangle(x - 8, 190, x + 54, 215, 40, 61, 72, filled=True)
+        draw_rectangle(x + 10, 230, x + 14, 570, 52, 79, 87, filled=True)
+
+    portal_x, portal_y = 1260, 320
+    draw_rectangle(
+        portal_x - 151, portal_y - 161, portal_x + 151, portal_y + 161,
+        15, 34, 47, filled=True,
+    )
+    draw_rectangle(
+        portal_x - 143, portal_y - 153, portal_x + 143, portal_y + 153,
+        70, 116, 122, filled=False,
+    )
+    draw_rectangle(
+        portal_x - 126, portal_y - 136, portal_x + 126, portal_y + 136,
+        26, 49, 59, filled=True,
+    )
+    draw_rectangle(
+        portal_x - 108, portal_y - 119, portal_x + 108, portal_y + 118,
+        11, 23, 36, filled=True,
+    )
+    draw_rectangle(
+        portal_x - 96, portal_y - 107, portal_x + 96, portal_y + 110,
+        26, 49, 59, filled=False,
+    )
+    draw_rectangle(
+        portal_x - 71, portal_y - 119, portal_x - 66, portal_y + 92,
+        90, 133, 129, filled=True,
+    )
+    draw_rectangle(
+        portal_x + 67, portal_y - 119, portal_x + 72, portal_y + 92,
+        90, 133, 129, filled=True,
+    )
+    draw_rectangle(
+        portal_x - 127, portal_y - 151, portal_x + 127, portal_y - 145,
+        120, 147, 131, filled=True,
+    )
+    draw_rectangle(
+        portal_x - 137, portal_y - 174, portal_x + 137, portal_y - 160,
+        24, 43, 55, filled=True,
+    )
+    for x in range(0, SCREEN_WIDTH, 100):
+        draw_rectangle(x, 0, x + 2, 119, 26, 42, 55, filled=True)
+    for y in (58, 119):
+        draw_rectangle(0, y, SCREEN_WIDTH, y + 2, 29, 45, 56, filled=True)
+    draw_rectangle(0, 137, SCREEN_WIDTH, 142, 55, 87, 94, filled=True)
+    draw_rectangle(0, 142, SCREEN_WIDTH, 151, 17, 32, 45, filled=True)
+
+    sprite.clip_draw(
+        0, SPRITE_ROWS["down"], SPRITE_FRAME_SIZE, SPRITE_FRAME_SIZE,
+        portal_x, 237, 224, 224,
+    )
+
+
+def draw_menu_title(title_font: Font, subtitle_font: Font) -> None:
+    draw_centered_text(
+        title_font, "Avoid My Past", SCREEN_WIDTH / 2 + 3, 748, (4, 10, 18)
+    )
+    draw_centered_text(
+        title_font, "Avoid My Past", SCREEN_WIDTH / 2, 754, (238, 221, 185)
+    )
+    draw_centered_text(
+        subtitle_font, "A JOURNEY THROUGH TIME", SCREEN_WIDTH / 2, 691,
+        (117, 153, 158),
+    )
+    draw_rectangle(515, 671, 721, 674, 54, 91, 98, filled=True)
+    draw_rectangle(879, 671, 1085, 674, 54, 91, 98, filled=True)
+    draw_rectangle(793, 667, 807, 681, 173, 144, 96, filled=True)
 
 
 def draw_menu(
-    title_font: Font, menu_font: Font, selected_item: int
+    title_font: Font,
+    menu_font: Font,
+    hint_font: Font,
+    selected_item: int,
+    sprite: Image,
 ) -> None:
-    clear_canvas()
-    draw_rectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 12, 24, 42, filled=True)
-    draw_centered_text(
-        title_font, "Avoid My Past", SCREEN_WIDTH / 2, 742, (231, 220, 191)
-    )
-    draw_rectangle(620, 713, 980, 716, 75, 151, 151, filled=True)
+    draw_menu_background(sprite)
+    draw_menu_title(title_font, hint_font)
     for index, (label, y) in enumerate(
         (("게임 시작", 500), ("종료", 380), ("설정", 260))
     ):
-        draw_menu_button(menu_font, label, y, index == selected_item)
+        hint = ("01 / ENTER", "02 / ESC", "03 / SETUP")[index]
+        draw_menu_button(
+            menu_font, hint_font, label, hint, y, index == selected_item, 610
+        )
     draw_centered_text(
-        menu_font, "방향키로 선택하고 Enter로 확인", SCREEN_WIDTH / 2, 145,
-        (127, 149, 169),
+        hint_font, "USE  UP / DOWN  TO SELECT       ENTER  TO CONFIRM",
+        610, 133, (103, 128, 141),
     )
 
 
 def draw_settings(
-    title_font: Font,
+    heading_font: Font,
     menu_font: Font,
+    hint_font: Font,
     selected_item: int,
     sound_enabled: bool,
     fullscreen: bool,
+    sprite: Image,
 ) -> None:
-    clear_canvas()
-    draw_rectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 12, 24, 42, filled=True)
+    draw_menu_background(sprite)
     draw_centered_text(
-        title_font, "설정", SCREEN_WIDTH / 2, 710, (231, 220, 191)
+        heading_font, "설정", 610, 697, (238, 221, 185)
     )
     options = (
-        f"소리: {'켜짐' if sound_enabled else '꺼짐'}",
-        f"화면 모드: {'전체화면' if fullscreen else '창화면 (1280 x 720)'}",
-        "돌아가기",
+        (f"소리   {'켜짐' if sound_enabled else '꺼짐'}", "SOUND"),
+        (f"화면 모드   {'전체화면' if fullscreen else '창화면 (1280 x 720)'}", "DISPLAY"),
+        ("돌아가기", "BACK"),
     )
-    for index, (label, y) in enumerate(zip(options, (510, 390, 270))):
-        draw_menu_button(menu_font, label, y, index == selected_item)
+    for index, ((label, hint), y) in enumerate(zip(options, (510, 390, 270))):
+        draw_menu_button(
+            menu_font, hint_font, label, hint, y, index == selected_item, 610
+        )
     draw_centered_text(
-        menu_font, "방향키로 선택하고 Enter로 변경", SCREEN_WIDTH / 2, 145,
-        (127, 149, 169),
+        hint_font, "LEFT / RIGHT  OR  ENTER  TO CHANGE       ESC  TO RETURN",
+        610, 133, (103, 128, 141),
     )
 
 
@@ -338,10 +450,16 @@ def main() -> None:
     open_canvas(SCREEN_WIDTH, SCREEN_HEIGHT)
     set_display_mode(fullscreen=False)
     title_font = load_font(
-        str(Path(environ["WINDIR"]) / "Fonts" / "malgun.ttf"), 56
+        str(Path(environ["WINDIR"]) / "Fonts" / "georgiab.ttf"), 68
     )
     menu_font = load_font(
-        str(Path(environ["WINDIR"]) / "Fonts" / "malgun.ttf"), 30
+        str(Path(environ["WINDIR"]) / "Fonts" / "malgunbd.ttf"), 30
+    )
+    heading_font = load_font(
+        str(Path(environ["WINDIR"]) / "Fonts" / "malgunbd.ttf"), 46
+    )
+    hint_font = load_font(
+        str(Path(environ["WINDIR"]) / "Fonts" / "consola.ttf"), 17
     )
     sprite = load_image(
         str(Path(__file__).resolve().parents[1] / "assets" / "player_sprite.png")
@@ -438,11 +556,13 @@ def main() -> None:
             )
         elif screen == "settings":
             draw_settings(
-                title_font, menu_font, selected_settings_item,
-                sound_enabled, fullscreen,
+                heading_font, menu_font, hint_font, selected_settings_item,
+                sound_enabled, fullscreen, sprite,
             )
         else:
-            draw_menu(title_font, menu_font, selected_menu_item)
+            draw_menu(
+                title_font, menu_font, hint_font, selected_menu_item, sprite
+            )
         update_canvas()
 
     close_canvas()
