@@ -132,16 +132,43 @@ def move_player(
 
 
 def window_to_canvas_position(x: int, y: int) -> tuple[float, float]:
-    logical_x = ctypes.c_float()
-    logical_y = ctypes.c_float()
-    pico2d.SDL_RenderWindowToLogical(
-        pico2d_core.renderer,
-        x,
-        y,
-        ctypes.byref(logical_x),
-        ctypes.byref(logical_y),
+    window_width = ctypes.c_int()
+    window_height = ctypes.c_int()
+    output_width = ctypes.c_int()
+    output_height = ctypes.c_int()
+    pico2d.SDL_GetWindowSize(
+        pico2d_core.window,
+        ctypes.byref(window_width),
+        ctypes.byref(window_height),
     )
-    return logical_x.value, SCREEN_HEIGHT - logical_y.value
+    if pico2d.SDL_GetRendererOutputSize(
+        pico2d_core.renderer,
+        ctypes.byref(output_width),
+        ctypes.byref(output_height),
+    ) != 0:
+        raise RuntimeError(f"Could not read renderer size: {sdl_error_message()}")
+
+    if min(
+        window_width.value,
+        window_height.value,
+        output_width.value,
+        output_height.value,
+    ) <= 0:
+        return -1.0, -1.0
+
+    scale = min(
+        output_width.value / SCREEN_WIDTH,
+        output_height.value / SCREEN_HEIGHT,
+    )
+    viewport_width = SCREEN_WIDTH * scale
+    viewport_height = SCREEN_HEIGHT * scale
+    viewport_left = (output_width.value - viewport_width) / 2
+    viewport_top = (output_height.value - viewport_height) / 2
+    output_x = x * output_width.value / window_width.value
+    output_y = y * output_height.value / window_height.value
+    canvas_x = (output_x - viewport_left) / scale
+    canvas_y = SCREEN_HEIGHT - (output_y - viewport_top) / scale
+    return canvas_x, canvas_y
 
 
 def menu_item_at(screen: str, x: float, y: float) -> int | None:
