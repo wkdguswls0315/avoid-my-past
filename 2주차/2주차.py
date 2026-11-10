@@ -1,5 +1,6 @@
 import ctypes
 from bisect import bisect_right
+from collections import deque
 from math import atan2, cos, hypot, pi, sin
 from os import environ
 from pathlib import Path
@@ -92,6 +93,11 @@ START_SAFE_RADIUS = 60
 GHOST_HIT_RADIUS = 22
 FIRST_GHOST_DELAY = 1.0
 GHOST_INTERVAL = 1.25
+PRESSURE_STEPS = (12.0, 22.0, 34.0)
+PRESSURE_STEP = 0.2
+MIRROR_START = 22.0
+MIRROR_INTERVAL = 4.0
+MIRROR_GRACE = 1.2
 # 열쇠가 저장고의 서로 다른 구역에 나타나도록 배치한다.
 ROUNDS = (
     ((17, 11), 54),
@@ -525,24 +531,112 @@ class MovementSample(NamedTuple):
     frame: int
 
 
+class Ghost(NamedTuple):
+    pose: MovementSample
+    mirrored: bool
+    harmless: bool
+
+
+def pressure_clock(elapsed: float) -> float:
+    # 단계가 바뀌어도 이미 진행한 재생 위치는 그대로 이어진다.
+    return elapsed + PRESSURE_STEP * sum(max(0.0, elapsed - step) for step in PRESSURE_STEPS)
+
+
 def replay_at(route: list[MovementSample], elapsed: float) -> MovementSample | None:
-    if not route or not 0.0 <= elapsed < route[-1].elapsed:
+    if not route or elapsed < 0.0:
         return None
-    index = bisect_right(route, elapsed, key=lambda sample: sample.elapsed) - 1
+    duration = route[-1].elapsed
+    if duration <= 0.0:
+        return route[0]
+    time = elapsed % (2 * duration)
+    returning = time > duration
+    if returning:
+        time = 2 * duration - time
+    index = bisect_right(route, time, key=lambda sample: sample.elapsed) - 1
+    if index == len(route) - 1:
+        return route[-1]
     start, end = route[index], route[index + 1]
-    fraction = (elapsed - start.elapsed) / (end.elapsed - start.elapsed)
+    fraction = (time - start.elapsed) / (end.elapsed - start.elapsed)
+    facing = start.facing
+    if returning:
+        facing = {"left": "right", "right": "left", "up": "down", "down": "up"}[facing]
     return MovementSample(
-        elapsed,
+        time,
         start.x + (end.x - start.x) * fraction,
         start.y + (end.y - start.y) * fraction,
-        start.facing,
+        facing,
         start.frame,
     )
+
+
+def reflected_route(route: list[MovementSample]) -> list[MovementSample]:
+    mirror_facing = {"left": "right", "right": "left", "up": "up", "down": "down"}
+    direct = [
+        MovementSample(s.elapsed, SCREEN_WIDTH - s.x, s.y, mirror_facing[s.facing], s.frame)
+        for s in route
+    ]
+    if all(not is_blocked(s.x, s.y) for s in direct) and all(
+        not is_blocked((a.x + b.x) / 2, (a.y + b.y) / 2) for a, b in zip(direct, direct[1:])
+    ):
+        return direct
+
+    walkable = {(col, row) for row, tiles in enumerate(MAP)
+                for col, tile in enumerate(tiles) if tile not in SOLID_TILES}
+
+    def safe_tile(sample: MovementSample) -> tuple[int, int]:
+        col = int(sample.x // TILE_WIDTH)
+        row = len(MAP) - 1 - int(sample.y // TILE_HEIGHT)
+        if (col, row) in walkable:
+            return col, row
+        return min(walkable, key=lambda tile: (
+            abs(tile[0] - col) + abs(tile[1] - row), abs(tile[1] - row), tile,
+        ))
+
+    def connect(start, goal):
+        parent = {start: None}
+        queue = deque([start])
+        while goal not in parent:
+            if not queue:
+                raise ValueError("The reflected route crosses disconnected cellar tiles")
+            x, y = queue.popleft()
+            for neighbor in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                if neighbor in walkable and neighbor not in parent:
+                    parent[neighbor] = (x, y)
+                    queue.append(neighbor)
+        path = [goal]
+        while path[-1] != start:
+            path.append(parent[path[-1]])
+        return path[::-1]
+
+    # 좌우가 비대칭인 곳은 반전 좌표에 가장 가까운 바닥을 잇는다.
+    last_tile = safe_tile(direct[0])
+    result = [MovementSample(0.0, *tile_center(*last_tile), direct[0].facing, 0)]
+    last_change = 0.0
+    for sample in direct[1:]:
+        tile = safe_tile(sample)
+        if tile == last_tile:
+            continue
+        path = connect(last_tile, tile)
+        segment_time = (sample.elapsed - last_change) / (len(path) - 1)
+        for column, row in path[1:]:
+            previous = result[-1]
+            x, y = tile_center(column, row)
+            dx, dy = x - previous.x, y - previous.y
+            facing = ("right" if dx > 0 else "left") if dx else ("up" if dy > 0 else "down")
+            result[-1] = previous._replace(facing=facing, frame=1)
+            elapsed = previous.elapsed + max(segment_time, hypot(dx, dy) / PLAYER_SPEED)
+            result.append(MovementSample(elapsed, x, y, facing, 0))
+        last_tile, last_change = tile, sample.elapsed
+    if direct[-1].elapsed > last_change:
+        previous = result[-1]
+        result.append(previous._replace(elapsed=previous.elapsed + direct[-1].elapsed - last_change))
+    return result
 
 
 class CellarRun:
     def __init__(self) -> None:
         self.routes: list[list[MovementSample]] = []
+        self.mirror_routes: list[list[MovementSample]] = []
         self.reset()
 
     @property
@@ -551,6 +645,7 @@ class CellarRun:
 
     def reset(self, notice: str = "") -> None:
         self.routes.clear()
+        self.mirror_routes.clear()
         self.begin_round(notice)
 
     def begin_round(self, notice: str = "") -> None:
@@ -560,7 +655,7 @@ class CellarRun:
         self.elapsed = self.animation_time = 0.0
         self.has_key = False
         self.recording = [self.sample()]
-        self.ghosts: list[MovementSample] = []
+        self.ghosts: list[Ghost] = []
         self.notice, self.notice_until = notice, 3.0
 
     def sample(self) -> MovementSample:
@@ -574,8 +669,25 @@ class CellarRun:
         self.routes.append(self.recording)
         if len(self.routes) == len(ROUNDS):
             return "clear"
-        self.begin_round("새 열쇠를 찾으세요. 분신은 차례로 출발합니다.")
+        self.mirror_routes.append(reflected_route(self.recording))
+        self.begin_round("분신이 경로를 반복합니다. 오래 머물수록 더 빨라집니다.")
         return "next"
+
+    def update_ghosts(self) -> None:
+        self.ghosts.clear()
+        clock = pressure_clock(self.elapsed)
+        for routes, mirrored, start, interval in (
+            (self.routes, False, FIRST_GHOST_DELAY, GHOST_INTERVAL),
+            (self.mirror_routes, True, MIRROR_START, MIRROR_INTERVAL),
+        ):
+            for index, route in enumerate(routes):
+                spawn = start + index * interval
+                if self.elapsed < spawn:
+                    break
+                pose = replay_at(route, clock - pressure_clock(spawn))
+                if pose is not None:
+                    harmless = mirrored and self.elapsed < spawn + MIRROR_GRACE
+                    self.ghosts.append(Ghost(pose, mirrored, harmless))
 
     def update(self, move_x: int, move_y: int, delta_time: float) -> str:
         if delta_time <= 0.0:
@@ -592,15 +704,11 @@ class CellarRun:
             self.animation_time += delta_time
             self.frame = int(self.animation_time * 8) % 4
         self.recording.append(self.sample())
-        self.ghosts = [
-            ghost for index, route in enumerate(self.routes)
-            if (ghost := replay_at(route, self.elapsed - FIRST_GHOST_DELAY - index * GHOST_INTERVAL))
-            is not None
-        ]
+        self.update_ghosts()
         # 같은 위치에서 출발한 기록이 겹쳐도 계단 앞에서는 안전하다.
         if hypot(self.x - PLAYER_START[0], self.y - PLAYER_START[1]) > START_SAFE_RADIUS:
             for ghost in self.ghosts:
-                if hypot(self.x - ghost.x, self.y - ghost.y) < GHOST_HIT_RADIUS:
+                if not ghost.harmless and hypot(self.x - ghost.pose.x, self.y - ghost.pose.y) < GHOST_HIT_RADIUS:
                     self.reset("분신과 접촉했습니다. 1라운드부터 다시 시작합니다.")
                     return "reset"
         if self.elapsed >= self.time_limit:
@@ -617,10 +725,12 @@ class CellarRun:
         return "playing"
 
 
-def draw_ghost(sprite: Image, sample: MovementSample) -> None:
-    draw_circle(sample.x, sample.y, PLAYER_RADIUS + 2, 102, 220, 240, 180)
-    pico2d.SDL_SetTextureColorMod(sprite.texture, 115, 245, 255)
-    sprite.opacify(0.55)
+def draw_ghost(sprite: Image, ghost: Ghost) -> None:
+    sample = ghost.pose
+    color = (208, 147, 255) if ghost.mirrored else (102, 220, 240)
+    draw_circle(sample.x, sample.y, PLAYER_RADIUS + 2, *color, 90 if ghost.harmless else 180)
+    pico2d.SDL_SetTextureColorMod(sprite.texture, *color)
+    sprite.opacify(0.28 if ghost.harmless else 0.58)
     draw_player(sprite, sample.x, sample.y, sample.facing, sample.frame)
     sprite.opacify(1.0)
     pico2d.SDL_SetTextureColorMod(sprite.texture, 255, 255, 255)
@@ -639,8 +749,8 @@ def draw_test_door(hint_font: Font, nearby: bool) -> None:
 
 
 def draw_run_hud(menu_font: Font, hint_font: Font, run: CellarRun) -> None:
-    fill(12, 847, 958, 44, (23, 20, 24, 236))
-    draw_rectangle(12, 847, 970, 891, 133, 106, 74, filled=False)
+    fill(12, 847, 1458, 44, (23, 20, 24, 236))
+    draw_rectangle(12, 847, 1470, 891, 133, 106, 74, filled=False)
     menu_font.draw(27, 867, "대저택 지하 저장고", (239, 209, 158))
     remaining = max(0, int(run.time_limit - run.elapsed + 0.999))
     key = "YES" if run.has_key else "NO"
@@ -649,11 +759,17 @@ def draw_run_hud(menu_font: Font, hint_font: Font, run: CellarRun) -> None:
         f"ROUND {run.round_number}/{len(ROUNDS)}   TIME {remaining:02d}s   KEY {key}",
         (224, 210, 187),
     )
-    hint_font.draw(736, 865, "SHADOWS", (139, 207, 212))
-    for index in range(4):
-        x = 832 + 30 * index
-        color = (103, 224, 230) if index < len(run.ghosts) else (63, 89, 101)
-        draw_circle(x, 869, 6, *color, filled=index < len(run.ghosts))
+    mirrors = sum(ghost.mirrored for ghost in run.ghosts)
+    originals = len(run.ghosts) - mirrors
+    speed = 1 + PRESSURE_STEP * sum(run.elapsed >= step for step in PRESSURE_STEPS) if run.routes else 1
+    hint_font.draw(736, 865, f"SHADOWS {originals}", (139, 207, 212))
+    hint_font.draw(896, 865, f"SPEED x{speed:.1f}", (239, 184, 123) if speed > 1 else (224, 210, 187))
+    if mirrors < len(run.mirror_routes):
+        until = max(0, int(MIRROR_START + mirrors * MIRROR_INTERVAL - run.elapsed + 0.999))
+        mirror_label = f"MIRRORS {mirrors}   NEXT {until:02d}s"
+    else:
+        mirror_label = f"MIRRORS {mirrors}"
+    hint_font.draw(1080, 865, mirror_label, (208, 147, 255))
     if run.notice and run.elapsed < run.notice_until:
         fill(355, 10, 890, 45, (23, 20, 24, 230))
         draw_centered_text(menu_font, run.notice, 800, 32, (239, 209, 158))
