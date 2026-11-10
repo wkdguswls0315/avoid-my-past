@@ -587,11 +587,14 @@ class Patrol:
                            dx < 0, frame, wing_lift)
 
 
-# 먼저 저장고 북서쪽과 동쪽을 순찰하고, 3라운드부터 중앙 통로에 박쥐가 합류한다.
+# 첫 라운드에는 두 구역을 순찰하고, 이후 라운드마다 새 구역에 한 마리씩 합류한다.
 MONSTER_PATROLS = (
     Patrol("bat", 1, ((3, 3), (8, 3), (8, 6), (3, 6)), 118, 0.5),
     Patrol("beetle", 1, ((17, 7), (22, 7), (22, 8), (17, 8)), 86, 1.6),
-    Patrol("bat", 3, ((11, 8), (15, 8), (15, 10), (11, 10)), 105, 2.8),
+    Patrol("bat", 2, ((11, 8), (15, 8), (15, 10), (11, 10)), 105, 2.8),
+    Patrol("beetle", 3, ((16, 11), (21, 11), (21, 12), (16, 12)), 92, 0.8),
+    Patrol("bat", 4, ((11, 2), (17, 2), (17, 3), (11, 3)), 112, 1.4),
+    Patrol("beetle", 5, ((2, 7), (6, 7), (6, 8), (2, 8)), 100, 1.0),
 )
 
 
@@ -871,8 +874,9 @@ def draw_run_hud(menu_font: Font, hint_font: Font, run: CellarRun) -> None:
     else:
         mirror_label = f"MIRRORS {mirrors}"
     hint_font.draw(1080, 865, mirror_label, (208, 147, 255))
-    if run.elapsed < run.slow_until:
-        hint_font.draw(1335, 865, "SLOWED", (246, 164, 96))
+    slowed = run.elapsed < run.slow_until
+    monster_label = f"MOBS {len(run.monsters)}" + (" SLOW" if slowed else "")
+    hint_font.draw(1325, 865, monster_label, (246, 164, 96) if slowed else (224, 210, 187))
     if run.notice and run.elapsed < run.notice_until:
         fill(355, 10, 890, 45, (23, 20, 24, 230))
         draw_centered_text(menu_font, run.notice, 800, 32, (239, 209, 158))
