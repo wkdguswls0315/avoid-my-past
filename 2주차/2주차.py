@@ -1,5 +1,6 @@
 import ctypes
 from bisect import bisect_right
+from math import atan2, cos, hypot, pi, sin
 from os import environ
 from pathlib import Path
 from time import perf_counter
@@ -33,6 +34,7 @@ from pico2d import (
     close_canvas,
     clear_canvas,
     draw_circle,
+    draw_line,
     draw_rectangle,
     get_events,
     load_font,
@@ -56,14 +58,14 @@ PAUSE_ITEM_Y = tuple(y for _, y in PAUSE_ITEMS)
 MAP = (
     "#########################",
     "#.......................#",
-    "#.....OOOO..............#",
+    "#.....BBBB..............#",
     "#.......................#",
     "#.......................#",
     "#............O..........#",
     "#............O..........#",
     "#............O..........#",
     "#.......................#",
-    "#.................OOOO..#",
+    "#.................CCCC..#",
     "#.......................#",
     "#.......................#",
     "#.......................#",
@@ -75,6 +77,9 @@ MAP_OFFSET_X = 0
 MAP_OFFSET_Y = 0
 START_TILE = (2, 12)
 GOAL_TILE = (22, 1)
+SOLID_TILES = "#OBC"
+LAMP_TILES = ((3, 11, 340), (8, 3, 340), (11, 8, 365),
+              (14, 4, 340), (20, 8, 355), (21, 2, 335))
 PLAYER_START = (
     (START_TILE[0] + 0.5) * TILE_WIDTH,
     (len(MAP) - START_TILE[1] - 0.5) * TILE_HEIGHT,
@@ -109,7 +114,7 @@ def is_blocked(x: float, y: float, radius: float = PLAYER_RADIUS) -> bool:
             row = len(MAP) - 1 - row_from_bottom
             if not (0 <= row < len(MAP) and 0 <= column < len(MAP[row])):
                 return True
-            if MAP[row][column] in "#O":
+            if MAP[row][column] in SOLID_TILES:
                 return True
     return False
 
@@ -166,102 +171,273 @@ def tile_origin(column: int, row: int) -> tuple[float, float]:
     )
 
 
+def tile_center(column: int, row: int) -> tuple[float, float]:
+    x, y = tile_origin(column, row)
+    return x + TILE_WIDTH / 2, y + TILE_HEIGHT / 2
+
+
+def fill(x: float, y: float, width: float, height: float, color: tuple[int, ...]) -> None:
+    draw_rectangle(
+        int(x), int(y), int(x + width) - 1, int(y + height) - 1, *color, filled=True,
+    )
+
+
 def draw_tile(column: int, row: int, tile: str) -> None:
     x, y = tile_origin(column, row)
-    draw_rectangle(x, y, x + TILE_WIDTH, y + TILE_HEIGHT, 12, 24, 42, filled=True)
+    variant = (column * 19 + row * 23) % 9
+    fill(x, y, TILE_WIDTH, TILE_HEIGHT, (28, 29, 35))
 
-    if tile == "#":
-        draw_rectangle(
-            x + 3, y + 2, x + TILE_WIDTH - 3, y + TILE_HEIGHT - 3,
-            7, 14, 27, filled=True,
-        )
-        draw_rectangle(
-            x + 5, y + 8, x + TILE_WIDTH - 5, y + TILE_HEIGHT - 8,
-            48, 69, 102, filled=True,
-        )
-        draw_rectangle(
-            x + 8, y + TILE_HEIGHT - 15, x + TILE_WIDTH - 8, y + TILE_HEIGHT - 11,
-            78, 100, 133, filled=True,
-        )
-    elif tile == "O":
-        draw_rectangle(
-            x + 7, y + 2, x + TILE_WIDTH - 5, y + TILE_HEIGHT - 5,
-            6, 12, 25, filled=True,
-        )
-        draw_rectangle(
-            x + 5, y + 7, x + TILE_WIDTH - 7, y + TILE_HEIGHT - 11,
-            48, 68, 98, filled=True,
-        )
-        draw_rectangle(
-            x + 10, y + TILE_HEIGHT - 18, x + TILE_WIDTH - 12, y + TILE_HEIGHT - 14,
-            72, 91, 122, filled=True,
-        )
-        for detail_x, detail_y in (
-            (x + 13, y + 14),
-            (x + TILE_WIDTH - 17, y + 14),
-            (x + 13, y + TILE_HEIGHT - 24),
-            (x + TILE_WIDTH - 17, y + TILE_HEIGHT - 24),
-        ):
-            draw_rectangle(
-                detail_x, detail_y, detail_x + 4, detail_y + 4,
-                24, 37, 58, filled=True,
-            )
-    else:
-        draw_rectangle(
-            x, y, x + TILE_WIDTH, y + TILE_HEIGHT,
-            25, 43, 66, filled=False,
-        )
+    if tile in "#O":
+        fill(x, y + 9, TILE_WIDTH, TILE_HEIGHT - 9, (67, 66, 69))
+        fill(x + 2, y + 2, 60, 10, (45, 42, 47))
+        for course in range(3):
+            base = y + 12 + 16 * course
+            edges = (2, 24, 62) if (row + course) % 2 else (2, 39, 62)
+            for left, right in zip(edges, edges[1:]):
+                value = 82 + (variant + left + course * 3) % 13
+                fill(x + left, base, right - left - 2, 13, (value, value - 2, value))
+                fill(x + left, base + 11, right - left - 2, 2,
+                     (value + 16, value + 13, value + 12))
+        fill(x, y + 59, 64, 5, (116, 108, 103))
+        if tile == "O":
+            for brace in (12, 50):
+                fill(x + brace, y + 2, 3, 58, (54, 44, 37))
+        return
 
-
-def draw_start_pad() -> None:
-    center_x, center_y = PLAYER_START
-    draw_rectangle(
-        center_x - 24, center_y - 27, center_x + 24, center_y + 27,
-        34, 52, 68, filled=True,
-    )
-    draw_rectangle(
-        center_x - 24, center_y - 27, center_x + 24, center_y + 27,
-        75, 151, 151, filled=False,
-    )
-
-
-def draw_goal_door() -> None:
-    x, y = tile_origin(*GOAL_TILE)
-    draw_rectangle(
-        x + 8, y + 4, x + TILE_WIDTH - 8, y + TILE_HEIGHT - 3,
-        51, 29, 18, filled=True,
-    )
-    draw_rectangle(
-        x + 12, y + 7, x + TILE_WIDTH - 12, y + TILE_HEIGHT - 3,
-        139, 82, 39, filled=True,
-    )
-    draw_rectangle(
-        x + 17, y + 12, x + TILE_WIDTH - 17, y + TILE_HEIGHT - 3,
-        105, 56, 29, filled=True,
-    )
-    draw_rectangle(
-        x + TILE_WIDTH / 2 - 2, y + 12,
-        x + TILE_WIDTH / 2 + 2, y + TILE_HEIGHT - 3,
-        161, 98, 47, filled=True,
-    )
-    draw_rectangle(
-        x + 13, y + 8, x + TILE_WIDTH - 13, y + 12,
-        161, 98, 47, filled=True,
-    )
-    draw_rectangle(
-        x + TILE_WIDTH - 22, y + 29,
-        x + TILE_WIDTH - 18, y + 33,
-        238, 190, 83, filled=True,
-    )
+    # 줄눈을 어긋나게 놓고 타일마다 석재 색과 흠집을 조금씩 다르게 만든다.
+    for course in range(2):
+        base = y + 32 * course
+        edges = (0, 21, 64) if (row + course) % 2 else (0, 43, 64)
+        for left, right in zip(edges, edges[1:]):
+            value = 65 + (variant + left + 2 * course) % 13
+            color = ((value + 6, value - 2, value - 6) if tile in "BC"
+                     else (value, value - 2, value + 1))
+            fill(x + left + 1, base + 1, right - left - 2, 30, color)
+            fill(x + left + 2, base + 29, right - left - 4, 2,
+                 (value + 13, value + 10, value + 10))
+            fill(x + left + 2, base + 1, right - left - 4, 3,
+                 (value - 13, value - 14, value - 12))
+            mark_x = x + left + 4 + variant % 5
+            fill(mark_x, base + 9 + variant, 3 + variant % 4, 2,
+                 (value - 8, value - 9, value - 6))
+    if tile == "B":
+        for dx in (19, 46):
+            draw_circle(x + dx + 3, y + 26, 15, 27, 24, 26, filled=True)
+            draw_circle(x + dx, y + 32, 15, 99, 58, 38, filled=True)
+            draw_circle(x + dx, y + 35, 12, 152, 99, 60, filled=True)
+            draw_circle(x + dx, y + 35, 12, 61, 46, 41)
+            draw_line(x + dx - 8, y + 38, x + dx + 8, y + 38, 104, 66, 47)
+            draw_line(x + dx - 10, y + 33, x + dx + 10, y + 33, 104, 66, 47)
+            fill(x + dx - 2, y + 35, 5, 3, (64, 53, 48))
+    elif tile == "C":
+        fill(x + 8, y + 5, 52, 51, (41, 30, 29))
+        fill(x + 6, y + 10, 50, 45, (132, 82, 51))
+        for plank in range(4):
+            fill(x + 9 + plank * 12, y + 14, 2, 36, (88, 57, 43))
+        draw_line(x + 9, y + 13, x + 53, y + 51, 187, 125, 76)
+        draw_line(x + 10, y + 13, x + 54, y + 51, 187, 125, 76)
+        fill(x + 6, y + 10, 50, 5, (96, 57, 40))
+        fill(x + 6, y + 51, 50, 4, (186, 129, 82))
 
 
-def draw_map() -> None:
-    clear_canvas()
-    for row_index, row in enumerate(MAP):
-        for column_index, tile in enumerate(row):
-            draw_tile(column_index, row_index, tile)
-    draw_start_pad()
-    draw_goal_door()
+def draw_cellar_details() -> None:
+    # 벽 안쪽에 돌기둥과 황동 장식을 붙여 오래된 저택의 기초를 표현한다.
+    for column in (3, 11, 17, 21):
+        for row in (0, len(MAP) - 1):
+            x, y = tile_origin(column, row)
+            fill(x + 13, y + 3, 38, TILE_HEIGHT - 6, (42, 39, 43))
+            fill(x + 16, y + 4, 31, TILE_HEIGHT - 9, (101, 96, 94))
+            fill(x + 17, y + 8, 5, TILE_HEIGHT - 16, (137, 126, 118))
+            for cap in (4, 52):
+                fill(x + 12, y + cap, 40, 8, (120, 110, 103))
+                fill(x + 12, y + cap + 6, 40, 2, (153, 140, 127))
+            draw_circle(x + 32, y + 33, 5, 177, 131, 78)
+
+    for column, row in ((7, 10), (15, 7), (19, 3)):
+        x, y = tile_center(column, row)
+        fill(x - 14, y - 14, 28, 28, (93, 86, 81))
+        fill(x - 12, y - 12, 24, 24, (34, 34, 37))
+        for dx in range(-9, 10, 5):
+            fill(x + dx, y - 10, 2, 20, (106, 100, 96))
+    # 지하실로 내려온 돌계단과 위층으로 이어지는 철문.
+    x, y = PLAYER_START
+    fill(x - 22, y - 25, 44, 47, (49, 49, 55))
+    for step in range(5):
+        level = y - 21 + 8 * step
+        fill(x - 20, level, 40, 7, (86 + step * 6, 83 + step * 5, 82 + step * 4))
+        fill(x - 20, level, 40, 2, (52, 51, 56))
+    x, y = tile_center(*GOAL_TILE)
+    fill(x - 29, y - 26, 58, 54, (127, 116, 103))
+    fill(x - 24, y - 22, 48, 46, (53, 53, 57))
+    for dx in range(-19, 21, 10):
+        fill(x + dx, y - 18, 7, 39, (107, 105, 110))
+        fill(x + dx, y - 18, 2, 39, (135, 132, 134))
+    for dy in (-14, 13):
+        fill(x - 23, y + dy, 46, 5, (61, 61, 63))
+    draw_circle(x + 12, y, 4, 233, 176, 94)
+    fill(x - 29, y - 28, 58, 5, (167, 148, 116))
+
+
+def draw_lantern(x: float, y: float) -> None:
+    draw_circle(x + 3, y - 2, 13, 49, 38, 32, filled=True)
+    fill(x - 7, y - 8, 15, 17, (98, 64, 37))
+    fill(x - 5, y - 5, 11, 12, (241, 147, 62))
+    fill(x - 2, y - 4, 5, 10, (255, 239, 161))
+    fill(x - 8, y + 7, 17, 3, (174, 115, 55))
+    fill(x - 8, y - 9, 17, 3, (174, 115, 55))
+
+
+class Lamp(NamedTuple):
+    x: float
+    y: float
+    reach: float
+
+
+def ray_distance(x, y, dx, dy, limit, walls) -> float:
+    """Return the distance along a ray to the first solid tile."""
+    for left, bottom, right, top in walls:
+        enter, leave = 0.0, limit
+        for start, direction, low, high in ((x, dx, left, right), (y, dy, bottom, top)):
+            if abs(direction) < 1e-9:
+                if not low <= start <= high:
+                    break
+                continue
+            t1, t2 = (low - start) / direction, (high - start) / direction
+            enter = max(enter, min(t1, t2))
+            leave = min(leave, max(t1, t2))
+            if leave < enter:
+                break
+        else:
+            limit = enter
+    return limit
+
+
+def draw_mesh(points, indices) -> None:
+    p = pico2d
+    vertices = (p.SDL_Vertex * len(points))(*(
+        p.SDL_Vertex(p.SDL_FPoint(x, SCREEN_HEIGHT - y), p.SDL_Color(*color), p.SDL_FPoint())
+        for x, y, color in points
+    ))
+    index_type = p.SDL_RenderGeometry.argtypes[4]._type_
+    triangles = (index_type * len(indices))(*indices)
+    p.SDL_RenderGeometry(pico2d_core.renderer, None, vertices, len(vertices), triangles, len(triangles))
+
+
+class Cellar:
+    def __init__(self) -> None:
+        self.lamps = [Lamp(*tile_center(column, row), reach) for column, row, reach in LAMP_TILES]
+        self.walls = []
+        for row, tiles in enumerate(MAP):
+            for column, tile in enumerate(tiles):
+                if tile in SOLID_TILES:
+                    x, y = tile_origin(column, row)
+                    self.walls.append((x, y, x + TILE_WIDTH, y + TILE_HEIGHT))
+        self.floor = self.build_texture(self.draw_floor, pico2d.SDL_BLENDMODE_NONE)
+        self.lighting = self.build_texture(self.draw_lighting, pico2d.SDL_BLENDMODE_MOD)
+
+    @staticmethod
+    def build_texture(draw, blend_mode):
+        p, renderer = pico2d, pico2d_core.renderer
+        texture = p.SDL_CreateTexture(
+            renderer, p.SDL_PIXELFORMAT_RGBA8888, p.SDL_TEXTUREACCESS_TARGET,
+            SCREEN_WIDTH, SCREEN_HEIGHT,
+        )
+        if not texture:
+            raise RuntimeError(f"Could not create the cellar texture: {sdl_error_message()}")
+        if p.SDL_SetRenderTarget(renderer, texture) != 0:
+            p.SDL_DestroyTexture(texture)
+            raise RuntimeError(f"Could not draw the cellar texture: {sdl_error_message()}")
+        try:
+            draw()
+        finally:
+            p.SDL_SetRenderTarget(renderer, None)
+            p.SDL_SetRenderDrawBlendMode(renderer, p.SDL_BLENDMODE_BLEND)
+        p.SDL_SetTextureBlendMode(texture, blend_mode)
+        return texture
+
+    def draw_floor(self) -> None:
+        clear_canvas()
+        for row, tiles in enumerate(MAP):
+            for column, tile in enumerate(tiles):
+                draw_tile(column, row, tile)
+        draw_cellar_details()
+        for lamp in self.lamps:
+            draw_lantern(lamp.x, lamp.y)
+
+    def draw_lighting(self) -> None:
+        p, renderer = pico2d, pico2d_core.renderer
+        p.SDL_SetRenderDrawColor(renderer, 119, 125, 147, 255)
+        p.SDL_RenderClear(renderer)
+        p.SDL_SetRenderDrawBlendMode(renderer, p.SDL_BLENDMODE_ADD)
+        for lamp in self.lamps:
+            self.draw_lamp_light(lamp)
+
+    def draw_lamp_light(self, lamp: Lamp) -> None:
+        # 장애물 모서리의 양옆으로 광선을 쏴 좁은 그림자 경계도 놓치지 않는다.
+        nearby = [wall for wall in self.walls
+                  if wall[0] < lamp.x + lamp.reach and wall[2] > lamp.x - lamp.reach
+                  and wall[1] < lamp.y + lamp.reach and wall[3] > lamp.y - lamp.reach]
+        angles = {i * pi / 64 for i in range(-64, 64)}
+        for left, bottom, right, top in nearby:
+            for x in (left, right):
+                for y in (bottom, top):
+                    angle = atan2(y - lamp.y, x - lamp.x)
+                    angles.update((angle - 0.001, angle + 0.001))
+        points = [(lamp.x, lamp.y, (153, 126, 87, 255))]
+        ring_count = 5
+        for angle in sorted(angles):
+            dx, dy = cos(angle), sin(angle)
+            wall_distance = ray_distance(lamp.x, lamp.y, dx, dy, lamp.reach, nearby)
+            # 부딪힌 면에도 빛이 조금 닿도록 돌 표면 안쪽까지 짧게 확장한다.
+            limit = min(lamp.reach, wall_distance + 9)
+            for ring in range(1, ring_count + 1):
+                distance = limit * ring / ring_count
+                strength = (1 - distance / lamp.reach) ** 1.6
+                color = (*[int(channel * strength) for channel in (153, 126, 87)], 255)
+                points.append((lamp.x + dx * distance, lamp.y + dy * distance, color))
+        indices = []
+        for index in range(len(angles)):
+            first = 1 + index * ring_count
+            second = 1 + ((index + 1) % len(angles)) * ring_count
+            indices.extend((0, first, second))
+            for ring in range(ring_count - 1):
+                a, b = first + ring, second + ring
+                indices.extend((a, a + 1, b, b, a + 1, b + 1))
+        draw_mesh(points, indices)
+
+    def draw_shadows(self, x: float, y: float) -> None:
+        draw_circle(x, y - 10, 10, 10, 9, 13, 125, filled=True)
+        for lamp in self.lamps:
+            dx, dy = x - lamp.x, y - 8 - lamp.y
+            distance = hypot(dx, dy)
+            if not 10 < distance < lamp.reach * 0.8:
+                continue
+            dx, dy = dx / distance, dy / distance
+            if ray_distance(lamp.x, lamp.y, dx, dy, distance, self.walls) < distance - 1:
+                continue
+            length = min(17 + distance * 0.18, 64)
+            length = ray_distance(x, y - 8, dx, dy, length, self.walls)
+            if length < 5:
+                continue
+            opacity = int(145 * (1 - distance / lamp.reach))
+            near, far = (8, 12)
+            points = [
+                (x - dy * near, y - 8 + dx * near, (12, 9, 13, opacity)),
+                (x + dy * near, y - 8 - dx * near, (12, 9, 13, opacity)),
+                (x + dx * length + dy * far, y - 8 + dy * length - dx * far, (12, 9, 13, 0)),
+                (x + dx * length - dy * far, y - 8 + dy * length + dx * far, (12, 9, 13, 0)),
+            ]
+            draw_mesh(points, (0, 1, 2, 0, 2, 3))
+
+    def draw_background(self) -> None:
+        pico2d.SDL_RenderCopy(pico2d_core.renderer, self.floor, None, None)
+
+    def apply_lighting(self) -> None:
+        pico2d.SDL_RenderCopy(pico2d_core.renderer, self.lighting, None, None)
+
+    def close(self) -> None:
+        pico2d.SDL_DestroyTexture(self.lighting)
+        pico2d.SDL_DestroyTexture(self.floor)
 
 
 def draw_player(sprite: Image, x: float, y: float, facing: str, frame: int) -> None:
@@ -579,6 +755,7 @@ def main() -> None:
     sprite = load_image(
         str(Path(__file__).resolve().parents[1] / "assets" / "player_sprite.png")
     )
+    cellar = Cellar()
     player_x, player_y = PLAYER_START
     facing = "down"
     animation_time = 0.0
@@ -748,14 +925,18 @@ def main() -> None:
                 recording.append(MovementSample(elapsed, player_x, player_y, facing, frame))
 
         if screen in ("game", "pause") or (screen == "settings" and pause_menu_open):
-            draw_map()
+            cellar.draw_background()
+            cellar.draw_shadows(player_x, player_y)
             ghost = replay_at(replay, elapsed)
             if ghost is not None:
                 draw_ghost(sprite, ghost)
             draw_player(sprite, player_x, player_y, facing, frame)
-            draw_rectangle(12, 847, 580, 895, 12, 24, 36, 220, filled=True)
+            cellar.apply_lighting()
+            fill(12, 847, 576, 44, (23, 20, 24, 228))
+            draw_rectangle(12, 847, 588, 891, 118, 96, 68, filled=False)
+            menu_font.draw(27, 867, "대저택 지하 저장고", (239, 209, 158))
             hint_font.draw(
-                24, 865, "R : FINISH RECORDING AND REPLAY", (238, 221, 185)
+                320, 865, "R : REPLAY LAST ROUTE", (205, 188, 163)
             )
 
         if screen == "pause":
@@ -771,6 +952,7 @@ def main() -> None:
             )
         update_canvas()
 
+    cellar.close()
     close_canvas()
 
 
