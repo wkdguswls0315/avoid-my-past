@@ -45,8 +45,6 @@ WINDOW_HEIGHT = 720
 MENU_BUTTON_CENTER_X = 610
 MENU_BUTTON_HALF_WIDTH = 290
 MENU_BUTTON_HALF_HEIGHT = 34
-MENU_MOUSE_HIT_HALF_WIDTH = 340
-MENU_MOUSE_HIT_HALF_HEIGHT = 54
 MENU_ITEMS = (("게임 시작", 500), ("종료", 380), ("설정", 260))
 SETTINGS_ITEM_Y = (510, 390, 270)
 MAP = (
@@ -133,17 +131,9 @@ def move_player(
     return x, y
 
 
-def window_to_canvas_position(x: int, y: int) -> tuple[float, float]:
-    canvas_x = ctypes.c_float()
-    canvas_y = ctypes.c_float()
-    pico2d.SDL_RenderWindowToLogical(
-        pico2d_core.renderer,
-        x,
-        y,
-        ctypes.byref(canvas_x),
-        ctypes.byref(canvas_y),
-    )
-    return canvas_x.value, SCREEN_HEIGHT - canvas_y.value
+def mouse_event_to_canvas_position(x: int, y: int) -> tuple[float, float]:
+    """Convert Pico2D logical mouse-event coordinates to the canvas origin."""
+    return float(x), SCREEN_HEIGHT - y
 
 
 def menu_item_at(screen: str, x: float, y: float) -> int | None:
@@ -152,18 +142,15 @@ def menu_item_at(screen: str, x: float, y: float) -> int | None:
         if screen == "menu"
         else SETTINGS_ITEM_Y
     )
-    if not (
-        MENU_BUTTON_CENTER_X - MENU_MOUSE_HIT_HALF_WIDTH <= x
-        <= MENU_BUTTON_CENTER_X + MENU_MOUSE_HIT_HALF_WIDTH
-    ):
-        return None
-
-    nearest_item = min(
-        enumerate(item_positions),
-        key=lambda item: abs(y - item[1]),
-    )
-    index, center_y = nearest_item
-    return index if abs(y - center_y) <= MENU_MOUSE_HIT_HALF_HEIGHT else None
+    for index, center_y in enumerate(item_positions):
+        if (
+            MENU_BUTTON_CENTER_X - MENU_BUTTON_HALF_WIDTH <= x
+            <= MENU_BUTTON_CENTER_X + MENU_BUTTON_HALF_WIDTH
+            and center_y - MENU_BUTTON_HALF_HEIGHT <= y
+            <= center_y + MENU_BUTTON_HALF_HEIGHT
+        ):
+            return index
+    return None
 
 
 def tile_origin(column: int, row: int) -> tuple[float, float]:
@@ -570,7 +557,7 @@ def main() -> None:
                     else:
                         screen = "menu"
             elif event.type == SDL_MOUSEMOTION and screen in ("menu", "settings"):
-                mouse_x, mouse_y = window_to_canvas_position(event.x, event.y)
+                mouse_x, mouse_y = mouse_event_to_canvas_position(event.x, event.y)
                 hovered_item = menu_item_at(screen, mouse_x, mouse_y)
                 if hovered_item is not None:
                     if screen == "menu":
@@ -582,7 +569,7 @@ def main() -> None:
                 and event.button == SDL_BUTTON_LEFT
                 and screen in ("menu", "settings")
             ):
-                mouse_x, mouse_y = window_to_canvas_position(event.x, event.y)
+                mouse_x, mouse_y = mouse_event_to_canvas_position(event.x, event.y)
                 clicked_item = menu_item_at(screen, mouse_x, mouse_y)
                 if clicked_item is not None and screen == "menu":
                     selected_menu_item = clicked_item
