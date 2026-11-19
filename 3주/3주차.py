@@ -54,10 +54,37 @@ MENU_BUTTON_HALF_HEIGHT = 34
 MENU_ITEMS = (("게임 시작", 500), ("종료", 380), ("설정", 260))
 SETTINGS_ITEM_Y = (510, 390, 270)
 HUB_CENTER_X = SCREEN_WIDTH / 2
-HUB_START = (HUB_CENTER_X - 280, 270)
-HUB_SHADOW_DOOR = (HUB_CENTER_X + 420, 270)
-HUB_DOOR_RADIUS = 85
+HUB_CENTER_Y = SCREEN_HEIGHT / 2
+HUB_MAP = (
+    "#########################",
+    "#####......###......#####",
+    "###...O...........O...###",
+    "##....S...........S....##",
+    "##.....................##",
+    "##...O.............O...##",
+    "##.....................##",
+    "##.....................##",
+    "##...O.............O...##",
+    "##.....................##",
+    "##....S...........S....##",
+    "###...O...........O...###",
+    "#####...............#####",
+    "#########################",
+)
+HUB_START_TILE = (12, 11)
+HUB_DOOR_TILE = (12, 1)
+HUB_DOOR_RADIUS = 105
 HUB_SPEED = 210
+HUB_LAMP_TILES = (
+    (9, 2, 340),
+    (15, 2, 340),
+    (8, 5, 355),
+    (16, 5, 355),
+    (8, 8, 355),
+    (16, 8, 355),
+    (9, 11, 330),
+    (15, 11, 330),
+)
 PAUSE_ITEMS = (("설정", 430), ("종료", 310))
 PAUSE_ITEM_Y = tuple(y for _, y in PAUSE_ITEMS)
 MAP = (
@@ -94,6 +121,14 @@ LAMP_TILES = ((3, 11, 340), (8, 3, 340), (11, 8, 365),
 PLAYER_START = (
     (START_TILE[0] + 0.5) * TILE_WIDTH,
     (len(MAP) - START_TILE[1] - 0.5) * TILE_HEIGHT,
+)
+HUB_START = (
+    (HUB_START_TILE[0] + 0.5) * TILE_WIDTH,
+    (len(HUB_MAP) - HUB_START_TILE[1] - 0.5) * TILE_HEIGHT,
+)
+HUB_SHADOW_DOOR = (
+    (HUB_DOOR_TILE[0] + 0.5) * TILE_WIDTH,
+    (len(HUB_MAP) - HUB_DOOR_TILE[1] - 1.15) * TILE_HEIGHT,
 )
 CHARACTER_SCALE = 1.1
 PLAYER_RADIUS = 14
@@ -141,16 +176,21 @@ KEY_DIRECTIONS = {
 }
 
 
-def is_blocked(x: float, y: float, radius: float = PLAYER_RADIUS) -> bool:
+def is_blocked(
+    x: float,
+    y: float,
+    radius: float = PLAYER_RADIUS,
+    tile_map: tuple[str, ...] = MAP,
+) -> bool:
     """Return whether the player's collision box overlaps a wall or obstacle."""
     for corner_x in (x - radius, x + radius):
         for corner_y in (y - radius, y + radius):
             column = int((corner_x - MAP_OFFSET_X) // TILE_WIDTH)
             row_from_bottom = int((corner_y - MAP_OFFSET_Y) // TILE_HEIGHT)
-            row = len(MAP) - 1 - row_from_bottom
-            if not (0 <= row < len(MAP) and 0 <= column < len(MAP[row])):
+            row = len(tile_map) - 1 - row_from_bottom
+            if not (0 <= row < len(tile_map) and 0 <= column < len(tile_map[row])):
                 return True
-            if MAP[row][column] in SOLID_TILES:
+            if tile_map[row][column] in SOLID_TILES:
                 return True
     return False
 
@@ -161,13 +201,15 @@ def move_player(
     move_x: float,
     move_y: float,
     delta_time: float,
+    tile_map: tuple[str, ...] = MAP,
+    max_speed: float = PLAYER_SPEED,
 ) -> tuple[float, float]:
     """Move smoothly while keeping the player inside walkable map tiles."""
     if move_x == 0 and move_y == 0:
         return x, y
 
     direction_length = (move_x**2 + move_y**2) ** 0.5
-    movement_speed = min(PLAYER_SPEED, direction_length)
+    movement_speed = min(max_speed, direction_length)
     distance = movement_speed * delta_time
     unit_x = move_x / direction_length
     unit_y = move_y / direction_length
@@ -178,8 +220,8 @@ def move_player(
         next_x = x + unit_x * step
         next_y = y + unit_y * step
 
-        moved_x = not is_blocked(next_x, y)
-        moved_y = not is_blocked(x, next_y)
+        moved_x = not is_blocked(next_x, y, tile_map=tile_map)
+        moved_y = not is_blocked(x, next_y, tile_map=tile_map)
         if moved_x:
             x = next_x
         if moved_y:
@@ -468,7 +510,11 @@ class Cellar:
         for lamp in self.lamps:
             self.draw_lamp_light(lamp)
 
-    def draw_lamp_light(self, lamp: Lamp) -> None:
+    def draw_lamp_light(
+        self,
+        lamp: Lamp,
+        rgb: tuple[int, int, int] = (153, 126, 87),
+    ) -> None:
         # 장애물 모서리의 양옆으로 광선을 쏴 좁은 그림자 경계도 놓치지 않는다.
         nearby = [wall for wall in self.walls
                   if wall[0] < lamp.x + lamp.reach and wall[2] > lamp.x - lamp.reach
@@ -479,7 +525,7 @@ class Cellar:
                 for y in (bottom, top):
                     angle = atan2(y - lamp.y, x - lamp.x)
                     angles.update((angle - 0.001, angle + 0.001))
-        points = [(lamp.x, lamp.y, (153, 126, 87, 255))]
+        points = [(lamp.x, lamp.y, (*rgb, 255))]
         ring_count = 5
         for angle in sorted(angles):
             dx, dy = cos(angle), sin(angle)
@@ -489,7 +535,7 @@ class Cellar:
             for ring in range(1, ring_count + 1):
                 distance = limit * ring / ring_count
                 strength = (1 - distance / lamp.reach) ** 1.6
-                color = (*[int(channel * strength) for channel in (153, 126, 87)], 255)
+                color = (*[int(channel * strength) for channel in rgb], 255)
                 points.append((lamp.x + dx * distance, lamp.y + dy * distance, color))
         indices = []
         for index in range(len(angles)):
@@ -546,6 +592,184 @@ class Cellar:
     def close(self) -> None:
         pico2d.SDL_DestroyTexture(self.lighting)
         pico2d.SDL_DestroyTexture(self.floor)
+
+
+def draw_hub_tile(column: int, row: int, tile: str) -> None:
+    x, y = tile_origin(column, row)
+    variant = (column * 17 + row * 29) % 7
+    fill(x, y, TILE_WIDTH, TILE_HEIGHT, (24, 27, 36))
+
+    if tile == "#":
+        fill(x, y + 8, TILE_WIDTH, TILE_HEIGHT - 8, (54, 58, 70))
+        fill(x + 2, y + 2, 60, 9, (36, 39, 49))
+        for course in range(3):
+            base = y + 11 + 16 * course
+            edges = (2, 26, 62) if (row + course) % 2 else (2, 38, 62)
+            for left, right in zip(edges, edges[1:]):
+                value = 72 + (variant + left + course * 3) % 11
+                fill(x + left, base, right - left - 2, 13, (value - 2, value, value + 9))
+                fill(x + left, base + 11, right - left - 2, 2,
+                     (value + 14, value + 15, value + 22))
+        fill(x, y + 59, 64, 5, (108, 108, 118))
+        return
+
+    if tile == "O":
+        # 대저택 홀의 석재 기둥과 황동 띠 장식
+        fill(x + 3, y + 3, TILE_WIDTH - 6, TILE_HEIGHT - 6, (34, 37, 47))
+        fill(x + 6, y + 8, TILE_WIDTH - 12, TILE_HEIGHT - 14, (78, 81, 93))
+        fill(x + 10, y + 12, TILE_WIDTH - 20, TILE_HEIGHT - 22, (98, 100, 112))
+        fill(x + 12, y + 14, 6, TILE_HEIGHT - 26, (128, 128, 138))
+        fill(x + 6, y + 8, TILE_WIDTH - 12, 4, (166, 132, 82))
+        fill(x + 6, y + TILE_HEIGHT - 10, TILE_WIDTH - 12, 4, (166, 132, 82))
+        draw_rectangle(x + 6, y + 8, x + TILE_WIDTH - 7, y + TILE_HEIGHT - 7, 132, 112, 82)
+        return
+
+    # 고급 석재 격자 바닥 타일
+    checker = (column + row) % 2
+    base_val = 58 if checker == 0 else 51
+    tint = variant % 4
+    color = (base_val + tint, base_val + 2 + tint, base_val + 11 + tint)
+    fill(x + 1, y + 1, TILE_WIDTH - 2, TILE_HEIGHT - 2, color)
+    fill(x + 2, y + TILE_HEIGHT - 3, TILE_WIDTH - 4, 2,
+         (color[0] + 12, color[1] + 12, color[2] + 14))
+    fill(x + 2, y + 1, TILE_WIDTH - 4, 2,
+         (color[0] - 11, color[1] - 11, color[2] - 10))
+    draw_rectangle(x + 6, y + 6, x + TILE_WIDTH - 7, y + TILE_HEIGHT - 7,
+                   color[0] - 5, color[1] - 4, color[2] - 2)
+
+
+def draw_hub_details() -> None:
+    cx, cy = HUB_CENTER_X, HUB_CENTER_Y
+
+    # 좌우 회랑 바닥의 얇은 황동 장식선
+    for side_col in (4, 20):
+        sx, sy = tile_origin(side_col, 11)
+        line_x = sx + (54 if side_col == 4 else 8)
+        fill(line_x, sy + 12, 2, TILE_HEIGHT * 9 - 24, (118, 102, 78))
+        for mark in range(9):
+            fill(line_x - 2, sy + 32 + mark * TILE_HEIGHT, 6, 6, (158, 128, 84))
+
+    # 중앙 붉은 융단 (입구에서 시간의 문양을 거쳐 지하 저장고 문까지)
+    carpet_left = cx - 64
+    carpet_bottom = tile_origin(12, 12)[1] + 16
+    carpet_top = tile_origin(12, 2)[1] + TILE_HEIGHT - 4
+    carpet_height = carpet_top - carpet_bottom
+    fill(carpet_left, carpet_bottom, 128, carpet_height, (58, 28, 36))
+    fill(carpet_left + 8, carpet_bottom + 6, 112, carpet_height - 12, (98, 38, 48))
+    for trim_x in (carpet_left + 12, carpet_left + 114):
+        fill(trim_x, carpet_bottom + 8, 2, carpet_height - 16, (176, 136, 78))
+    for index in range(11):
+        dy = carpet_bottom + 36 + index * TILE_HEIGHT
+        if abs(dy - cy) < 135:
+            continue
+        draw_line(cx - 18, dy, cx, dy + 16, 162, 116, 72)
+        draw_line(cx, dy + 16, cx + 18, dy, 162, 116, 72)
+        draw_line(cx + 18, dy, cx, dy - 16, 162, 116, 72)
+        draw_line(cx, dy - 16, cx - 18, dy, 162, 116, 72)
+
+    # 로비 정중앙의 거대한 바닥 시계 문양 (시간의 홀 상징)
+    draw_circle(cx, cy, 132, 34, 36, 46, filled=True)
+    draw_circle(cx, cy, 128, 148, 120, 78)
+    draw_circle(cx, cy, 122, 46, 49, 62, filled=True)
+    draw_circle(cx, cy, 116, 182, 146, 92)
+    draw_circle(cx, cy, 106, 26, 34, 48, filled=True)
+    draw_circle(cx, cy, 105, 92, 134, 142)
+    draw_circle(cx, cy, 66, 62, 82, 94)
+    draw_circle(cx, cy, 34, 42, 54, 68, filled=True)
+    draw_circle(cx, cy, 34, 148, 122, 82)
+    for hour in range(12):
+        angle = pi / 2 - hour * (pi / 6)
+        major = hour % 3 == 0
+        inner_r = 80 if major else 89
+        outer_r = 101
+        color = (212, 174, 110) if major else (138, 124, 96)
+        draw_line(
+            cx + cos(angle) * inner_r, cy + sin(angle) * inner_r,
+            cx + cos(angle) * outer_r, cy + sin(angle) * outer_r,
+            *color,
+        )
+        if major:
+            px, py = -sin(angle) * 1.5, cos(angle) * 1.5
+            draw_line(
+                cx + cos(angle) * inner_r + px, cy + sin(angle) * inner_r + py,
+                cx + cos(angle) * outer_r + px, cy + sin(angle) * outer_r + py,
+                *color,
+            )
+
+    # 위쪽 중앙의 웅장한 '지하 저장고' 석조 아치 문과 내려가는 계단
+    door_x, door_y = tile_center(*HUB_DOOR_TILE)
+    # 양옆 문기둥 석조 장식 (col 11, col 13)
+    for pillar_col in (11, 13):
+        px, py = tile_origin(pillar_col, 1)
+        fill(px + 6, py + 4, 52, TILE_HEIGHT - 4, (74, 72, 80))
+        fill(px + 10, py + 8, 44, TILE_HEIGHT - 12, (104, 100, 108))
+        fill(px + 8, py + 6, 48, 5, (176, 142, 88))
+        fill(px + 8, py + TILE_HEIGHT - 8, 48, 5, (176, 142, 88))
+        draw_circle(px + 32, py + 32, 6, 198, 158, 96)
+
+    # 문 앞 석재 디딤판
+    fill(door_x - 54, door_y - 44, 108, 16, (92, 88, 96))
+    fill(door_x - 50, door_y - 42, 100, 4, (158, 136, 98))
+
+    # 지하로 내려가는 어두운 돌계단과 반쯤 열린 철문
+    fill(door_x - 34, door_y - 30, 68, 64, (24, 28, 36))
+    for step in range(5):
+        sy = door_y - 26 + step * 11
+        shade = 74 - step * 9
+        fill(door_x - 28, sy, 56, 9, (shade, shade + 2, shade + 10))
+        fill(door_x - 28, sy, 56, 2, (34, 38, 48))
+    # 아치 상단 석조 인방과 철창 장식
+    fill(door_x - 42, door_y + 26, 84, 10, (132, 122, 114))
+    fill(door_x - 42, door_y + 24, 84, 3, (192, 158, 102))
+    for bar_x in (-30, -22, 20, 28):
+        fill(door_x + bar_x, door_y - 28, 3, 54, (112, 118, 128))
+    draw_rectangle(door_x - 34, door_y - 30, door_x + 34, door_y + 26, 174, 144, 96)
+
+    # 하단 출발 지점 석재 문양
+    sx, sy = HUB_START
+    draw_circle(sx, sy, 34, 44, 48, 60, filled=True)
+    draw_circle(sx, sy, 33, 154, 128, 86)
+    draw_circle(sx, sy, 26, 96, 116, 126)
+
+
+class HubHall(Cellar):
+    def __init__(self, props: Image) -> None:
+        self.props = props
+        self.lamps = [Lamp(*tile_center(column, row), reach) for column, row, reach in HUB_LAMP_TILES]
+        gate_x, gate_y = tile_center(*HUB_DOOR_TILE)
+        self.portal_lamp = Lamp(gate_x, gate_y - 36, 285)
+        self.clock_lamp = Lamp(HUB_CENTER_X, HUB_CENTER_Y, 220)
+        self.walls = []
+        for row, tiles in enumerate(HUB_MAP):
+            for column, tile in enumerate(tiles):
+                if tile in SOLID_TILES:
+                    x, y = tile_origin(column, row)
+                    self.walls.append((x, y, x + TILE_WIDTH, y + TILE_HEIGHT))
+        self.floor = self.build_texture(self.draw_floor, pico2d.SDL_BLENDMODE_NONE)
+        self.lighting = self.build_texture(self.draw_lighting, pico2d.SDL_BLENDMODE_MOD)
+
+    def draw_floor(self) -> None:
+        clear_canvas()
+        for row, tiles in enumerate(HUB_MAP):
+            for column, tile in enumerate(tiles):
+                draw_hub_tile(column, row, tile)
+        draw_hub_details()
+        for row, tiles in enumerate(HUB_MAP):
+            for column, tile in enumerate(tiles):
+                if tile in PROP_SPRITES:
+                    draw_prop(self.props, column, row, tile)
+        for lamp in self.lamps:
+            draw_lantern(lamp.x, lamp.y)
+
+    def draw_lighting(self) -> None:
+        p, renderer = pico2d, pico2d_core.renderer
+        p.SDL_SetRenderDrawColor(renderer, 118, 128, 158, 255)
+        p.SDL_RenderClear(renderer)
+        p.SDL_SetRenderDrawBlendMode(renderer, p.SDL_BLENDMODE_ADD)
+        for lamp in self.lamps:
+            self.draw_lamp_light(lamp, (158, 128, 86))
+        self.draw_lamp_light(self.portal_lamp, (88, 166, 178))
+        self.draw_lamp_light(self.clock_lamp, (78, 92, 108))
 
 
 def draw_player(sprite: Image, x: float, y: float, facing: str, frame: int) -> None:
@@ -987,24 +1211,106 @@ def set_sound_enabled(enabled: bool) -> None:
         Mix_VolumeMusic(volume)
 
 
+class CrispFont:
+    """Render supersampled, linearly-filtered, cached text so glyphs stay sharp at any window scale."""
+
+    def __init__(self, path: str, size: int, scale: int = 2) -> None:
+        self.scale = scale
+        self.font = pico2d.TTF_OpenFont(path.encode("utf-8"), size * scale)
+        if not self.font:
+            raise RuntimeError(f"Could not load font '{path}': {sdl_error_message()}")
+        pico2d.TTF_SetFontHinting(self.font, pico2d.TTF_HINTING_LIGHT)
+        self._cache: dict[tuple[str, tuple[int, int, int]], tuple[object, float, float]] = {}
+
+    def _entry(self, text: str, color: tuple[int, int, int]):
+        key = (text, color)
+        entry = self._cache.get(key)
+        if entry is not None:
+            return entry
+        if len(self._cache) >= 256:
+            self.clear_cache()
+        sdl_color = pico2d.SDL_Color(color[0], color[1], color[2], 255)
+        surface = pico2d.TTF_RenderUTF8_Blended(self.font, text.encode("utf-8"), sdl_color)
+        if not surface:
+            raise RuntimeError(f"Could not render text '{text}': {sdl_error_message()}")
+        try:
+            texture = pico2d.SDL_CreateTextureFromSurface(pico2d_core.renderer, surface)
+            if not texture:
+                raise RuntimeError(f"Could not create text texture: {sdl_error_message()}")
+            pico2d.SDL_SetTextureScaleMode(texture, pico2d.SDL_ScaleModeBest)
+            width = surface.contents.w / self.scale
+            height = surface.contents.h / self.scale
+        finally:
+            pico2d.SDL_FreeSurface(surface)
+        entry = (texture, width, height)
+        self._cache[key] = entry
+        return entry
+
+    def measure(self, text: str) -> tuple[float, float]:
+        text_width = ctypes.c_int()
+        text_height = ctypes.c_int()
+        result = pico2d.TTF_SizeUTF8(
+            self.font,
+            text.encode("utf-8"),
+            ctypes.byref(text_width),
+            ctypes.byref(text_height),
+        )
+        if result != 0:
+            raise RuntimeError(f"Could not measure text: {sdl_error_message()}")
+        return text_width.value / self.scale, text_height.value / self.scale
+
+    def draw(
+        self,
+        x: float,
+        y: float,
+        text: str,
+        color: tuple[int, int, int] = (255, 255, 255),
+    ) -> None:
+        if not text:
+            return
+        texture, width, height = self._entry(text, color)
+        dest = pico2d.SDL_FRect(
+            round(x),
+            round(SCREEN_HEIGHT - y - height / 2),
+            width,
+            height,
+        )
+        pico2d.SDL_RenderCopyF(pico2d_core.renderer, texture, None, ctypes.byref(dest))
+
+    def clear_cache(self) -> None:
+        for texture, _, _ in self._cache.values():
+            pico2d.SDL_DestroyTexture(texture)
+        self._cache.clear()
+
+    def close(self) -> None:
+        self.clear_cache()
+        if self.font:
+            pico2d.TTF_CloseFont(self.font)
+            self.font = None
+
+
 def draw_centered_text(
-    font: Font,
+    font: Font | CrispFont,
     text: str,
     center_x: float,
     y: float,
     color: tuple[int, int, int],
 ) -> None:
-    text_width = ctypes.c_int()
-    text_height = ctypes.c_int()
-    result = pico2d.TTF_SizeUTF8(
-        font.font,
-        text.encode("utf-8"),
-        ctypes.byref(text_width),
-        ctypes.byref(text_height),
-    )
-    if result != 0:
-        raise RuntimeError(f"Could not measure menu text: {sdl_error_message()}")
-    font.draw(center_x - text_width.value / 2, y, text, color)
+    if isinstance(font, CrispFont):
+        width, _ = font.measure(text)
+    else:
+        text_width = ctypes.c_int()
+        text_height = ctypes.c_int()
+        result = pico2d.TTF_SizeUTF8(
+            font.font,
+            text.encode("utf-8"),
+            ctypes.byref(text_width),
+            ctypes.byref(text_height),
+        )
+        if result != 0:
+            raise RuntimeError(f"Could not measure menu text: {sdl_error_message()}")
+        width = text_width.value
+    font.draw(center_x - width / 2, y, text, color)
 
 
 def draw_menu_button(
@@ -1130,51 +1436,105 @@ def draw_menu_footer(font: Font, text: str) -> None:
     draw_centered_text(font, text, (left + right) / 2, 85, (115, 145, 153))
 
 
+def draw_hub_clock_hands(elapsed: float) -> None:
+    cx, cy = HUB_CENTER_X, HUB_CENTER_Y
+    pulse = 0.5 + 0.5 * sin(elapsed * 2.2)
+    draw_circle(cx, cy, 24, 96, 198, 206, int(18 + 14 * pulse), filled=True)
+
+    # 시침, 분침, 초침이 천천히 돌아가며 '시간의 홀' 분위기를 살린다.
+    hands = (
+        (pi / 2 - elapsed * 0.04, 52, (198, 158, 96), 2),
+        (pi / 2 - elapsed * 0.24, 78, (232, 200, 134), 1),
+        (pi / 2 - elapsed * 1.15, 92, (118, 214, 220), 0),
+    )
+    for angle, length, color, thickness in hands:
+        ex = cx + cos(angle) * length
+        ey = cy + sin(angle) * length
+        draw_line(cx, cy, ex, ey, *color)
+        if thickness > 0:
+            px, py = -sin(angle), cos(angle)
+            for offset in range(1, thickness + 1):
+                draw_line(cx + px * offset, cy + py * offset,
+                          ex + px * offset, ey + py * offset, *color)
+                draw_line(cx - px * offset, cy - py * offset,
+                          ex - px * offset, ey - py * offset, *color)
+    draw_circle(cx, cy, 7, 214, 176, 110, filled=True)
+    draw_circle(cx, cy, 3, 128, 224, 230, filled=True)
+
+
+def draw_hub_gate_effects(elapsed: float, near_door: bool) -> None:
+    door_x, door_y = tile_center(*HUB_DOOR_TILE)
+    pulse = 0.5 + 0.5 * sin(elapsed * 3.4)
+    glow_alpha = int((46 if near_door else 26) + 18 * pulse)
+    draw_circle(door_x, door_y - 4, 34, 102, 214, 218, glow_alpha, filled=True)
+    draw_circle(door_x, door_y - 4, 18, 190, 242, 240, glow_alpha + 15, filled=True)
+    if near_door:
+        fill(door_x - 50, door_y - 43, 100, 5, (124, 228, 216, 170))
+    for mote in range(5):
+        rise = (elapsed * (16 + mote * 3) + mote * 13) % 52
+        mx = door_x + 22 * sin(elapsed * 1.8 + mote * 1.7)
+        my = door_y - 26 + rise
+        alpha = int((145 if near_door else 95) * sin(pi * rise / 52))
+        fill(mx, my, 3, 3, (156, 232, 232, alpha))
+
+
 def draw_hub(
-    heading_font: Font,
+    menu_font: Font,
     hint_font: Font,
     sprite: Image,
-    hub_background: Image,
-    hub_middleground: Image,
-    hub_door: Image,
+    hub: HubHall,
     player_x: float,
     player_y: float,
     facing: str,
     frame: int,
     elapsed: float,
 ) -> None:
-    hub_background.clip_draw(
-        0, 0, hub_background.w, hub_background.h,
-        SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2,
-        SCREEN_WIDTH, SCREEN_HEIGHT,
-    )
-    hub_middleground.clip_draw(
-        0, 0, hub_middleground.w, hub_middleground.h,
-        SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2,
-        SCREEN_WIDTH, SCREEN_HEIGHT,
-    )
-
     door_x, door_y = HUB_SHADOW_DOOR
-    hub_door.clip_draw(
-        0, 0, hub_door.w, hub_door.h,
-        door_x, door_y + 22,
-        300, 348,
-    )
-    draw_centered_text(heading_font, "그림자 기록실", door_x, door_y + 150,
-                       (224, 206, 174))
-    draw_centered_text(hint_font, "SHADOW MINI-GAME", door_x, door_y + 125,
-                       (127, 166, 168))
+    near_door = hypot(player_x - door_x, player_y - door_y) <= HUB_DOOR_RADIUS
 
+    hub.draw_background()
+    draw_hub_clock_hands(elapsed)
+    hub.draw_shadows(player_x, player_y)
     draw_player(sprite, player_x, player_y, facing, frame)
-    draw_centered_text(hint_font, "LOBBY", HUB_CENTER_X, 820,
-                       (196, 176, 143))
-    draw_centered_text(hint_font, "WASD / 방향키로 이동       ESC로 메인 메뉴",
-                       HUB_CENTER_X, 70, (115, 145, 153))
+    hub.apply_lighting()
+    hub.draw_lamp_glints(elapsed)
+    draw_hub_gate_effects(elapsed, near_door)
 
-    if hypot(player_x - door_x, player_y - door_y) <= HUB_DOOR_RADIUS:
-        fill(door_x - 125, 25, 250, 42, (23, 20, 24, 230))
-        draw_centered_text(hint_font, "ENTER로 그림자 기록실 입장",
-                           door_x, 47, (239, 209, 158))
+    # 상단 좌측: 로비 이름 배지
+    fill(18, 846, 290, 42, (20, 22, 30, 232))
+    draw_rectangle(18, 846, 308, 888, 138, 114, 78, filled=False)
+    draw_centered_text(menu_font, "시간의 홀", 163, 867, (239, 209, 158))
+
+    # 상단 중앙: '지하 저장고' 입구 명판
+    plaque_border = (126, 222, 214) if near_door else (154, 128, 86)
+    plaque_text = (252, 232, 186) if near_door else (228, 204, 162)
+    fill(HUB_CENTER_X - 132, 844, 264, 46, (18, 22, 30, 238))
+    draw_rectangle(HUB_CENTER_X - 132, 844, HUB_CENTER_X + 132, 890, *plaque_border, filled=False)
+    draw_centered_text(menu_font, "지하 저장고", HUB_CENTER_X, 867, plaque_text)
+
+    # 상단 우측: 메뉴 복귀 안내
+    fill(1372, 848, 210, 38, (20, 22, 30, 225))
+    draw_rectangle(1372, 848, 1582, 886, 86, 108, 118, filled=False)
+    draw_centered_text(hint_font, "ESC  메인 메뉴", 1477, 867, (176, 198, 204))
+
+    # 문 근처 접근 시 입장 안내
+    if near_door:
+        gate_x, gate_y = tile_center(*HUB_DOOR_TILE)
+        fill(gate_x - 62, gate_y - 118, 124, 28, (18, 26, 34, 235))
+        draw_rectangle(gate_x - 62, gate_y - 118, gate_x + 62, gate_y - 90, 126, 222, 214, filled=False)
+        draw_centered_text(hint_font, "ENTER 입장", gate_x, gate_y - 104, (186, 240, 234))
+
+        fill(HUB_CENTER_X - 280, 12, 560, 44, (18, 24, 32, 238))
+        draw_rectangle(HUB_CENTER_X - 280, 12, HUB_CENTER_X + 280, 56, 136, 214, 208, filled=False)
+        draw_centered_text(menu_font, "ENTER 키를 눌러 지하 저장고 입장", HUB_CENTER_X, 34, (239, 216, 168))
+    else:
+        fill(HUB_CENTER_X - 310, 14, 620, 36, (18, 22, 30, 220))
+        draw_rectangle(HUB_CENTER_X - 310, 14, HUB_CENTER_X + 310, 50, 72, 92, 102, filled=False)
+        draw_centered_text(
+            hint_font,
+            "방향키 / WASD 이동     ·     위쪽 '지하 저장고' 입구로 이동하세요",
+            HUB_CENTER_X, 32, (184, 196, 202),
+        )
 
 
 def draw_menu(
@@ -1263,38 +1623,22 @@ def main() -> None:
     open_canvas(SCREEN_WIDTH, SCREEN_HEIGHT)
     pico2d.SDL_SetRenderDrawBlendMode(pico2d_core.renderer, pico2d.SDL_BLENDMODE_BLEND)
     set_display_mode(fullscreen=False)
-    title_font = load_font(
-        str(Path(environ["WINDIR"]) / "Fonts" / "georgiab.ttf"), 68
-    )
-    korean_font = str(Path(environ["WINDIR"]) / "Fonts" / "NotoSansKR-VF.ttf")
-    menu_font = load_font(
-        korean_font, 30
-    )
-    heading_font = load_font(
-        korean_font, 46
-    )
-    hint_font = load_font(
-        korean_font, 17
-    )
+    fonts_dir = Path(environ["WINDIR"]) / "Fonts"
+    title_font = CrispFont(str(fonts_dir / "georgiab.ttf"), 68)
+    korean_bold = str(fonts_dir / "malgunbd.ttf")
+    menu_font = CrispFont(korean_bold, 30)
+    heading_font = CrispFont(korean_bold, 46)
+    hint_font = CrispFont(korean_bold, 18)
     assets = Path(__file__).resolve().parents[1] / "assets"
     sprite = load_image(str(assets / "player_sprite.png"))
     props = load_image(str(assets / "cellar_props.png"))
     pico2d.SDL_SetTextureScaleMode(props.texture, pico2d.SDL_ScaleModeNearest)
-    gothic_town = assets.parent / "assets" / "gothic" / "town" / "GothicVania-town-files" / "PNG" / "environment" / "layers"
-    hub_background = load_image(str(gothic_town / "background.png"))
-    hub_middleground = load_image(str(gothic_town / "middleground.png"))
-    hub_door = load_image(str(
-        assets.parent / "assets" / "gothic" / "town" / "GothicVania-town-files"
-        / "PNG" / "environment" / "props-sliced" / "house-b.png"
-    ))
-    pico2d.SDL_SetTextureScaleMode(hub_background.texture, pico2d.SDL_ScaleModeNearest)
-    pico2d.SDL_SetTextureScaleMode(hub_middleground.texture, pico2d.SDL_ScaleModeNearest)
-    pico2d.SDL_SetTextureScaleMode(hub_door.texture, pico2d.SDL_ScaleModeNearest)
     monster_sprites = {
         kind: load_image(str(assets / f"cellar_{kind}.png")) for kind in MONSTER_ART
     }
     for monster_sprite in monster_sprites.values():
         pico2d.SDL_SetTextureScaleMode(monster_sprite.texture, pico2d.SDL_ScaleModeNearest)
+    hub = HubHall(props)
     cellar = Cellar(props)
     run = CellarRun()
     held_keys: set[int] = set()
@@ -1303,8 +1647,10 @@ def main() -> None:
     screen = "menu"
     pause_menu_open = False
     hub_x, hub_y = HUB_START
-    hub_facing, hub_frame = "down", 0
+    hub_vx = hub_vy = 0.0
+    hub_facing, hub_frame = "up", 0
     hub_animation_time = 0.0
+    hub_elapsed = 0.0
     selected_menu_item = 0
     selected_settings_item = 0
     selected_pause_item = 0
@@ -1375,8 +1721,10 @@ def main() -> None:
                     if selected_menu_item == 0:
                         screen = "hub"
                         hub_x, hub_y = HUB_START
-                        hub_facing, hub_frame = "down", 0
+                        hub_vx = hub_vy = 0.0
+                        hub_facing, hub_frame = "up", 0
                         hub_animation_time = 0.0
+                        hub_elapsed = 0.0
                         held_keys.clear()
                     elif selected_menu_item == 1:
                         running = False
@@ -1425,8 +1773,10 @@ def main() -> None:
                     if clicked_item == 0:
                         screen = "hub"
                         hub_x, hub_y = HUB_START
-                        hub_facing, hub_frame = "down", 0
+                        hub_vx = hub_vy = 0.0
+                        hub_facing, hub_frame = "up", 0
                         hub_animation_time = 0.0
+                        hub_elapsed = 0.0
                         held_keys.clear()
                     elif clicked_item == 1:
                         running = False
@@ -1454,21 +1804,35 @@ def main() -> None:
                 held_keys.discard(event.key)
 
         if screen == "hub":
+            hub_elapsed += delta_time
             move_x = sum(KEY_DIRECTIONS[key][0] for key in held_keys)
             move_y = sum(KEY_DIRECTIONS[key][1] for key in held_keys)
             direction_length = hypot(move_x, move_y)
-            previous_hub = hub_x, hub_y
             if direction_length:
-                unit_x = move_x / direction_length
-                unit_y = move_y / direction_length
-                hub_x = max(80.0, min(SCREEN_WIDTH - 80.0,
-                                      hub_x + unit_x * HUB_SPEED * delta_time))
-                hub_y = max(170.0, min(650.0,
-                                      hub_y + unit_y * HUB_SPEED * delta_time))
+                target_x = move_x / direction_length * HUB_SPEED
+                target_y = move_y / direction_length * HUB_SPEED
+            else:
+                target_x = target_y = 0.0
+            acceleration = PLAYER_ACCELERATION if direction_length else PLAYER_STOP_ACCELERATION
+            hub_vx = (
+                min(target_x, hub_vx + acceleration * delta_time)
+                if hub_vx < target_x
+                else max(target_x, hub_vx - acceleration * delta_time)
+            )
+            hub_vy = (
+                min(target_y, hub_vy + acceleration * delta_time)
+                if hub_vy < target_y
+                else max(target_y, hub_vy - acceleration * delta_time)
+            )
+            previous_hub = hub_x, hub_y
+            hub_x, hub_y = move_player(
+                hub_x, hub_y, hub_vx, hub_vy, delta_time,
+                tile_map=HUB_MAP, max_speed=HUB_SPEED,
+            )
             if (hub_x, hub_y) != previous_hub:
                 if abs(move_x) > abs(move_y):
                     hub_facing = "right" if move_x > 0 else "left"
-                else:
+                elif move_y != 0:
                     hub_facing = "up" if move_y > 0 else "down"
                 hub_animation_time += delta_time
                 hub_frame = int(hub_animation_time * 8) % 4
@@ -1506,9 +1870,8 @@ def main() -> None:
             draw_pause_overlay(menu_font, hint_font, selected_pause_item)
         elif screen == "hub":
             draw_hub(
-                heading_font, hint_font, sprite,
-                hub_background, hub_middleground, hub_door, hub_x, hub_y,
-                hub_facing, hub_frame, run.elapsed,
+                menu_font, hint_font, sprite, hub,
+                hub_x, hub_y, hub_facing, hub_frame, hub_elapsed,
             )
         elif screen == "settings":
             draw_settings(
@@ -1526,6 +1889,9 @@ def main() -> None:
             draw_centered_text(hint_font, "ENTER / ESC  TO MAIN MENU", 800, 366, (205, 188, 163))
         update_canvas()
 
+    for font in (title_font, menu_font, heading_font, hint_font):
+        font.close()
+    hub.close()
     cellar.close()
     close_canvas()
 
