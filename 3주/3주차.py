@@ -164,13 +164,24 @@ def move_player(
     direction_length = (move_x**2 + move_y**2) ** 0.5
     movement_speed = min(PLAYER_SPEED, direction_length)
     distance = movement_speed * delta_time
-    next_x = x + move_x / direction_length * distance
-    next_y = y + move_y / direction_length * distance
+    unit_x = move_x / direction_length
+    unit_y = move_y / direction_length
+    remaining = distance
 
-    if not is_blocked(next_x, y):
-        x = next_x
-    if not is_blocked(x, next_y):
-        y = next_y
+    while remaining > 0:
+        step = min(remaining, 8.0)
+        next_x = x + unit_x * step
+        next_y = y + unit_y * step
+
+        moved_x = not is_blocked(next_x, y)
+        moved_y = not is_blocked(x, next_y)
+        if moved_x:
+            x = next_x
+        if moved_y:
+            y = next_y
+        if not moved_x and not moved_y:
+            break
+        remaining -= step
     return x, y
 
 
