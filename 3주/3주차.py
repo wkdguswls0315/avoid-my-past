@@ -1273,7 +1273,7 @@ def main() -> None:
         str(Path(environ["WINDIR"]) / "Fonts" / "malgunbd.ttf"), 46
     )
     hint_font = load_font(
-        str(Path(environ["WINDIR"]) / "Fonts" / "consola.ttf"), 17
+        str(Path(environ["WINDIR"]) / "Fonts" / "malgun.ttf"), 17
     )
     assets = Path(__file__).resolve().parents[1] / "assets"
     sprite = load_image(str(assets / "player_sprite.png"))
