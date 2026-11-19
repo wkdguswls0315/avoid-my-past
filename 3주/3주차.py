@@ -1136,6 +1136,7 @@ def draw_hub(
     sprite: Image,
     hub_background: Image,
     hub_middleground: Image,
+    hub_door: Image,
     player_x: float,
     player_y: float,
     facing: str,
@@ -1154,13 +1155,11 @@ def draw_hub(
     )
 
     door_x, door_y = HUB_SHADOW_DOOR
-    draw_rectangle(door_x - 105, door_y - 118, door_x + 105, door_y + 118,
-                   5, 13, 21, filled=True)
-    draw_rectangle(door_x - 92, door_y - 105, door_x + 92, door_y + 105,
-                   60, 91, 96, filled=False)
-    fill(door_x - 68, door_y - 82, 136, 164, (22, 39, 48))
-    draw_circle(door_x - 38, door_y - 5, 8, 173, 134, 92)
-    draw_circle(door_x + 38, door_y - 5, 8, 173, 134, 92)
+    hub_door.clip_draw(
+        0, 0, hub_door.w, hub_door.h,
+        door_x, door_y + 22,
+        300, 348,
+    )
     draw_centered_text(heading_font, "그림자 기록실", door_x, door_y + 150,
                        (224, 206, 174))
     draw_centered_text(hint_font, "SHADOW MINI-GAME", door_x, door_y + 125,
@@ -1283,8 +1282,13 @@ def main() -> None:
     gothic_town = assets.parent / "assets" / "gothic" / "town" / "GothicVania-town-files" / "PNG" / "environment" / "layers"
     hub_background = load_image(str(gothic_town / "background.png"))
     hub_middleground = load_image(str(gothic_town / "middleground.png"))
+    hub_door = load_image(str(
+        assets.parent / "assets" / "gothic" / "town" / "GothicVania-town-files"
+        / "PNG" / "environment" / "props-sliced" / "house-b.png"
+    ))
     pico2d.SDL_SetTextureScaleMode(hub_background.texture, pico2d.SDL_ScaleModeNearest)
     pico2d.SDL_SetTextureScaleMode(hub_middleground.texture, pico2d.SDL_ScaleModeNearest)
+    pico2d.SDL_SetTextureScaleMode(hub_door.texture, pico2d.SDL_ScaleModeNearest)
     monster_sprites = {
         kind: load_image(str(assets / f"cellar_{kind}.png")) for kind in MONSTER_ART
     }
@@ -1502,7 +1506,7 @@ def main() -> None:
         elif screen == "hub":
             draw_hub(
                 heading_font, hint_font, sprite,
-                hub_background, hub_middleground, hub_x, hub_y,
+                hub_background, hub_middleground, hub_door, hub_x, hub_y,
                 hub_facing, hub_frame, run.elapsed,
             )
         elif screen == "settings":
