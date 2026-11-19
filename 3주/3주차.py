@@ -1,5 +1,6 @@
 import ctypes
 import random
+import sys
 from bisect import bisect_right
 from collections import deque
 from math import atan2, cos, hypot, pi, sin
@@ -7,6 +8,22 @@ from os import environ
 from pathlib import Path
 from time import perf_counter
 from typing import NamedTuple
+
+
+def resource_root() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS"))
+    return Path(__file__).resolve().parents[1]
+
+
+if getattr(sys, "frozen", False):
+    _frozen_root = resource_root()
+    _sdl_dll_dir = _frozen_root / "sdl2dll" / "dll"
+    _pico_data_dir = _frozen_root / "pico2d" / "data"
+    if _sdl_dll_dir.exists():
+        environ["PYSDL2_DLL_PATH"] = str(_sdl_dll_dir)
+    if _pico_data_dir.exists():
+        environ["PICO2D_DATA_PATH"] = str(_pico_data_dir)
 
 import pico2d
 import pico2d.pico2d as pico2d_core
@@ -30,6 +47,7 @@ from pico2d import (
     SDLK_w,
     SDL_BUTTON_LEFT,
     SDL_MOUSEBUTTONDOWN,
+    SDL_MOUSEBUTTONUP,
     SDL_MOUSEMOTION,
     Mix_Volume,
     Mix_VolumeMusic,
@@ -54,7 +72,10 @@ MENU_BUTTON_CENTER_X = 610
 MENU_BUTTON_HALF_WIDTH = 290
 MENU_BUTTON_HALF_HEIGHT = 34
 MENU_ITEMS = (("게임 시작", 500), ("종료", 380), ("설정", 260))
-SETTINGS_ITEM_Y = (510, 390, 270)
+SETTINGS_ITEM_Y = (555, 455, 355, 255)
+VOLUME_BAR_LEFT = 515
+VOLUME_BAR_RIGHT = 765
+VOLUME_STEP = 10
 HUB_CENTER_X = SCREEN_WIDTH / 2
 HUB_CENTER_Y = SCREEN_HEIGHT / 2
 HUB_MAP = (
@@ -1148,13 +1169,14 @@ class CellarRun:
 
 
 class SoundBank:
-    """Manage gothic BGM loops and SFX chunks safely with the sound setting toggle."""
-
-    BGM_VOLUME = 76
-    SFX_VOLUME = 104
+    """Manage gothic BGM loops and SFX chunks safely with independent volume sliders."""
 
     def __init__(self, sounds_dir: Path) -> None:
-        self.enabled = True
+        self.bgm_volume = 70
+        self.sfx_volume = 80
+        self.saved_bgm_volume = 70
+        self.saved_sfx_volume = 80
+        self.paused_duck = False
         self.current_bgm: str | None = None
         self.bgms: dict[str, object] = {}
         self.sfx: dict[str, object] = {}
@@ -1171,19 +1193,49 @@ class SoundBank:
             path = sounds_dir / f"sfx_{name}.wav"
             if path.exists():
                 self.sfx[name] = pico2d.load_wav(str(path))
-        self.set_enabled(True)
+        self.apply_volumes()
 
-    def set_enabled(self, enabled: bool) -> None:
-        self.enabled = enabled
+    def apply_volumes(self) -> None:
         if not pico2d_core.audio_on:
             return
-        Mix_Volume(-1, self.SFX_VOLUME if enabled else 0)
-        Mix_VolumeMusic(self.BGM_VOLUME if enabled else 0)
+        raw_bgm = int(128 * self.bgm_volume / 100)
+        if self.paused_duck:
+            raw_bgm //= 3
+        raw_sfx = int(128 * self.sfx_volume / 100)
+        Mix_VolumeMusic(raw_bgm)
+        Mix_Volume(-1, raw_sfx)
+
+    def set_bgm_volume(self, value: int) -> None:
+        self.bgm_volume = max(0, min(100, int(value)))
+        if self.bgm_volume > 0:
+            self.saved_bgm_volume = self.bgm_volume
+        self.apply_volumes()
+
+    def set_sfx_volume(self, value: int) -> None:
+        self.sfx_volume = max(0, min(100, int(value)))
+        if self.sfx_volume > 0:
+            self.saved_sfx_volume = self.sfx_volume
+        self.apply_volumes()
+
+    def toggle_bgm_mute(self) -> None:
+        if self.bgm_volume > 0:
+            self.saved_bgm_volume = self.bgm_volume
+            self.bgm_volume = 0
+        else:
+            self.bgm_volume = self.saved_bgm_volume or 70
+        self.apply_volumes()
+
+    def toggle_sfx_mute(self) -> None:
+        if self.sfx_volume > 0:
+            self.saved_sfx_volume = self.sfx_volume
+            self.sfx_volume = 0
+        else:
+            self.sfx_volume = self.saved_sfx_volume or 80
+        self.apply_volumes()
 
     def set_paused_duck(self, paused: bool) -> None:
-        if not pico2d_core.audio_on or not self.enabled:
-            return
-        Mix_VolumeMusic(self.BGM_VOLUME // 3 if paused else self.BGM_VOLUME)
+        self.paused_duck = paused
+        self.apply_volumes()
 
     def play_bgm(self, name: str) -> None:
         if name == self.current_bgm:
@@ -1193,10 +1245,10 @@ class SoundBank:
             return
         self.current_bgm = name
         bgm.repeat_play()
-        Mix_VolumeMusic(self.BGM_VOLUME if self.enabled else 0)
+        self.apply_volumes()
 
     def play(self, name: str) -> None:
-        if not self.enabled:
+        if self.sfx_volume <= 0:
             return
         chunk = self.sfx.get(name)
         if chunk is not None:
@@ -2179,35 +2231,108 @@ def draw_menu(
     )
 
 
+def volume_from_mouse_x(x: float) -> int:
+    ratio = (x - VOLUME_BAR_LEFT) / (VOLUME_BAR_RIGHT - VOLUME_BAR_LEFT)
+    ratio = max(0.0, min(1.0, ratio))
+    return int(round(ratio * 10)) * VOLUME_STEP
+
+
+def draw_volume_button(
+    menu_font: Font | CrispFont,
+    hint_font: Font | CrispFont,
+    label: str,
+    volume: int,
+    y: float,
+    selected: bool,
+    center_x: float,
+) -> None:
+    left = center_x - MENU_BUTTON_HALF_WIDTH
+    right = center_x + MENU_BUTTON_HALF_WIDTH
+    bottom = y - MENU_BUTTON_HALF_HEIGHT
+    top = y + MENU_BUTTON_HALF_HEIGHT
+    draw_rectangle(left, bottom, right, top, 15, 29, 44, filled=True)
+    if selected:
+        draw_rectangle(left, bottom, right, top, 78, 148, 151, filled=False)
+        draw_rectangle(left + 3, bottom + 3, right - 3, top - 3, 43, 74, 84, filled=False)
+        draw_rectangle(left + 12, bottom + 12, left + 16, top - 12, 208, 171, 106, filled=True)
+    else:
+        draw_rectangle(left, bottom, right, top, 42, 63, 76, filled=False)
+
+    label_color = (239, 222, 186) if selected else (171, 186, 197)
+    menu_font.draw(left + 32, y, label, label_color)
+
+    # 볼륨 게이지 바
+    bar_width = VOLUME_BAR_RIGHT - VOLUME_BAR_LEFT
+    bar_height = 14
+    fill(VOLUME_BAR_LEFT, y - bar_height / 2, bar_width, bar_height, (9, 18, 30))
+    draw_rectangle(
+        VOLUME_BAR_LEFT, y - bar_height / 2,
+        VOLUME_BAR_RIGHT, y + bar_height / 2,
+        68, 106, 116 if selected else 84, filled=False,
+    )
+    filled_w = int(bar_width * volume / 100)
+    if filled_w > 0:
+        bar_color = (112, 212, 208) if selected else (76, 154, 160)
+        fill(VOLUME_BAR_LEFT + 1, y - bar_height / 2 + 1, max(1, filled_w - 2), bar_height - 2, bar_color)
+    # 10% 눈금 표시
+    for step in range(1, 10):
+        tx = VOLUME_BAR_LEFT + bar_width * step / 10
+        draw_line(tx, y - bar_height / 2 + 2, tx, y + bar_height / 2 - 2, 18, 34, 48)
+    # 슬라이더 손잡이
+    knob_x = VOLUME_BAR_LEFT + bar_width * volume / 100
+    knob_color = (238, 204, 128) if selected else (164, 178, 188)
+    fill(knob_x - 5, y - 12, 10, 24, knob_color)
+    draw_rectangle(knob_x - 5, y - 12, knob_x + 5, y + 12, 18, 28, 40, filled=False)
+
+    value_text = f"{volume}%" if volume > 0 else "꺼짐"
+    value_color = (239, 222, 186) if (selected and volume > 0) else (
+        (146, 158, 168) if volume == 0 else (186, 204, 212)
+    )
+    draw_centered_text(hint_font, value_text, right - 68, y, value_color)
+    if selected:
+        draw_centered_text(hint_font, "◀", VOLUME_BAR_LEFT - 18, y, (132, 198, 198))
+        draw_centered_text(hint_font, "▶", VOLUME_BAR_RIGHT + 18, y, (132, 198, 198))
+
+
 def draw_settings(
-    heading_font: Font,
-    menu_font: Font,
-    hint_font: Font,
+    heading_font: Font | CrispFont,
+    menu_font: Font | CrispFont,
+    hint_font: Font | CrispFont,
     selected_item: int,
-    sound_enabled: bool,
+    bgm_volume: int,
+    sfx_volume: int,
     fullscreen: bool,
     sprite: Image,
     over_game: bool,
 ) -> None:
     if over_game:
         draw_rectangle(0, 0, SCREEN_WIDTH - 1, SCREEN_HEIGHT - 1, 3, 8, 15, 64, filled=True)
-        draw_rectangle(320, 50, 900, 765, 12, 24, 36, 178, filled=True)
+        draw_rectangle(300, 42, 920, 775, 12, 24, 36, 196, filled=True)
+        draw_rectangle(300, 42, 920, 775, 72, 114, 120, filled=False)
     else:
         draw_menu_background(sprite)
     draw_centered_text(
         heading_font, "설정", 610, 697, (238, 221, 185)
     )
-    options = (
-        f"소리   {'켜짐' if sound_enabled else '꺼짐'}",
-        f"화면 모드   {'전체화면' if fullscreen else '창화면 (1280 x 720)'}",
-        "돌아가기",
+    draw_volume_button(
+        menu_font, hint_font, "배경음악", bgm_volume,
+        SETTINGS_ITEM_Y[0], selected_item == 0, MENU_BUTTON_CENTER_X,
     )
-    for index, (label, y) in enumerate(zip(options, SETTINGS_ITEM_Y)):
-        draw_menu_button(
-            menu_font, label, y, index == selected_item, MENU_BUTTON_CENTER_X
-        )
+    draw_volume_button(
+        menu_font, hint_font, "효과음", sfx_volume,
+        SETTINGS_ITEM_Y[1], selected_item == 1, MENU_BUTTON_CENTER_X,
+    )
+    draw_menu_button(
+        menu_font,
+        f"화면 모드   {'전체화면' if fullscreen else '창화면 (1280 x 720)'}",
+        SETTINGS_ITEM_Y[2], selected_item == 2, MENU_BUTTON_CENTER_X,
+    )
+    draw_menu_button(
+        menu_font, "돌아가기",
+        SETTINGS_ITEM_Y[3], selected_item == 3, MENU_BUTTON_CENTER_X,
+    )
     draw_menu_footer(
-        hint_font, "LEFT / RIGHT  OR  ENTER  TO CHANGE       ESC  TO RETURN"
+        hint_font, "◀/▶ · 드래그 음량 조절   ·   ENTER 음소거   ·   ESC 돌아가기"
     )
 
 
@@ -2253,7 +2378,7 @@ def main() -> None:
     menu_font = CrispFont(korean_bold, 30)
     heading_font = CrispFont(korean_bold, 46)
     hint_font = CrispFont(korean_bold, 18)
-    assets = Path(__file__).resolve().parents[1] / "assets"
+    assets = resource_root() / "assets"
     sprite = load_image(str(assets / "player_sprite.png"))
     props = load_image(str(assets / "cellar_props.png"))
     pico2d.SDL_SetTextureScaleMode(props.texture, pico2d.SDL_ScaleModeNearest)
@@ -2288,7 +2413,7 @@ def main() -> None:
     selected_menu_item = 0
     selected_settings_item = 0
     selected_pause_item = 0
-    sound_enabled = True
+    dragging_volume_item: int | None = None
     fullscreen = False
     sounds.play_bgm("hub")
 
@@ -2369,6 +2494,7 @@ def main() -> None:
                 if event.key == SDLK_ESCAPE:
                     if screen == "settings":
                         sounds.play("ui_move")
+                        dragging_volume_item = None
                         if pause_menu_open:
                             screen = "pause"
                         else:
@@ -2440,10 +2566,10 @@ def main() -> None:
                     selected_pause_item = (selected_pause_item + 1) % len(PAUSE_ITEMS)
                     sounds.play("ui_move")
                 elif screen == "settings" and event.key in (SDLK_UP, SDLK_w):
-                    selected_settings_item = (selected_settings_item - 1) % 3
+                    selected_settings_item = (selected_settings_item - 1) % len(SETTINGS_ITEM_Y)
                     sounds.play("ui_move")
                 elif screen == "settings" and event.key in (SDLK_DOWN, SDLK_s):
-                    selected_settings_item = (selected_settings_item + 1) % 3
+                    selected_settings_item = (selected_settings_item + 1) % len(SETTINGS_ITEM_Y)
                     sounds.play("ui_move")
                 elif screen == "menu" and event.key in (SDLK_RETURN, SDLK_KP_ENTER):
                     sounds.play("ui_confirm")
@@ -2462,31 +2588,56 @@ def main() -> None:
                     else:
                         running = False
                 elif screen == "settings" and event.key in (
-                    SDLK_LEFT, SDLK_RIGHT, SDLK_RETURN, SDLK_KP_ENTER
+                    SDLK_LEFT, SDLK_a, SDLK_RIGHT, SDLK_d, SDLK_RETURN, SDLK_KP_ENTER
                 ):
+                    delta_vol = -VOLUME_STEP if event.key in (SDLK_LEFT, SDLK_a) else (
+                        VOLUME_STEP if event.key in (SDLK_RIGHT, SDLK_d) else 0
+                    )
                     if selected_settings_item == 0:
-                        sound_enabled = not sound_enabled
-                        sounds.set_enabled(sound_enabled)
-                        sounds.play("ui_confirm")
+                        if delta_vol:
+                            sounds.set_bgm_volume(sounds.bgm_volume + delta_vol)
+                            sounds.play("ui_move")
+                        else:
+                            sounds.toggle_bgm_mute()
+                            sounds.play("ui_confirm")
                     elif selected_settings_item == 1:
+                        if delta_vol:
+                            sounds.set_sfx_volume(sounds.sfx_volume + delta_vol)
+                            sounds.play("ui_move")
+                        else:
+                            sounds.toggle_sfx_mute()
+                            sounds.play("ui_confirm")
+                    elif selected_settings_item == 2:
                         fullscreen = not fullscreen
                         set_display_mode(fullscreen)
                         sounds.play("ui_confirm")
                     else:
                         sounds.play("ui_move")
+                        dragging_volume_item = None
                         screen = "pause" if pause_menu_open else "menu"
             elif event.type == SDL_MOUSEMOTION and screen in ("menu", "settings"):
                 mouse_x, mouse_y = mouse_event_to_canvas_position(event.x, event.y)
-                hovered_item = menu_item_at(screen, mouse_x, mouse_y)
-                if hovered_item is not None:
-                    if screen == "menu":
-                        if selected_menu_item != hovered_item:
-                            selected_menu_item = hovered_item
-                            sounds.play("ui_move")
-                    else:
-                        if selected_settings_item != hovered_item:
-                            selected_settings_item = hovered_item
-                            sounds.play("ui_move")
+                if screen == "settings" and dragging_volume_item is not None:
+                    new_vol = volume_from_mouse_x(mouse_x)
+                    if dragging_volume_item == 0 and new_vol != sounds.bgm_volume:
+                        sounds.set_bgm_volume(new_vol)
+                        sounds.play("ui_move")
+                    elif dragging_volume_item == 1 and new_vol != sounds.sfx_volume:
+                        sounds.set_sfx_volume(new_vol)
+                        sounds.play("ui_move")
+                else:
+                    hovered_item = menu_item_at(screen, mouse_x, mouse_y)
+                    if hovered_item is not None:
+                        if screen == "menu":
+                            if selected_menu_item != hovered_item:
+                                selected_menu_item = hovered_item
+                                sounds.play("ui_move")
+                        else:
+                            if selected_settings_item != hovered_item:
+                                selected_settings_item = hovered_item
+                                sounds.play("ui_move")
+            elif event.type == SDL_MOUSEBUTTONUP and event.button == SDL_BUTTON_LEFT:
+                dragging_volume_item = None
             elif event.type == SDL_MOUSEMOTION and screen == "pause":
                 mouse_x, mouse_y = mouse_event_to_canvas_position(event.x, event.y)
                 hovered_item = menu_item_at(screen, mouse_x, mouse_y)
@@ -2526,16 +2677,34 @@ def main() -> None:
                         running = False
                 elif clicked_item is not None:
                     selected_settings_item = clicked_item
-                    if clicked_item == 0:
-                        sound_enabled = not sound_enabled
-                        sounds.set_enabled(sound_enabled)
-                        sounds.play("ui_confirm")
-                    elif clicked_item == 1:
+                    if clicked_item in (0, 1):
+                        if VOLUME_BAR_LEFT - 14 <= mouse_x <= VOLUME_BAR_RIGHT + 14:
+                            dragging_volume_item = clicked_item
+                            new_vol = volume_from_mouse_x(mouse_x)
+                            if clicked_item == 0:
+                                sounds.set_bgm_volume(new_vol)
+                            else:
+                                sounds.set_sfx_volume(new_vol)
+                            sounds.play("ui_move")
+                        elif mouse_x < VOLUME_BAR_LEFT - 14:
+                            if clicked_item == 0:
+                                sounds.toggle_bgm_mute()
+                            else:
+                                sounds.toggle_sfx_mute()
+                            sounds.play("ui_confirm")
+                        else:
+                            if clicked_item == 0:
+                                sounds.set_bgm_volume(sounds.bgm_volume + VOLUME_STEP)
+                            else:
+                                sounds.set_sfx_volume(sounds.sfx_volume + VOLUME_STEP)
+                            sounds.play("ui_move")
+                    elif clicked_item == 2:
                         fullscreen = not fullscreen
                         set_display_mode(fullscreen)
                         sounds.play("ui_confirm")
                     else:
                         sounds.play("ui_move")
+                        dragging_volume_item = None
                         screen = "pause" if pause_menu_open else "menu"
             elif event.type == SDL_KEYUP and event.key in KEY_DIRECTIONS:
                 held_keys.discard(event.key)
@@ -2655,7 +2824,7 @@ def main() -> None:
         elif screen == "settings":
             draw_settings(
                 heading_font, menu_font, hint_font, selected_settings_item,
-                sound_enabled, fullscreen, sprite, pause_menu_open,
+                sounds.bgm_volume, sounds.sfx_volume, fullscreen, sprite, pause_menu_open,
             )
         elif screen == "menu":
             draw_menu(
