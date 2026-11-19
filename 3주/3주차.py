@@ -1134,21 +1134,24 @@ def draw_hub(
     heading_font: Font,
     hint_font: Font,
     sprite: Image,
+    hub_background: Image,
+    hub_middleground: Image,
     player_x: float,
     player_y: float,
     facing: str,
     frame: int,
     elapsed: float,
 ) -> None:
-    fill(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, (10, 17, 25))
-    fill(0, 150, SCREEN_WIDTH, 250, (24, 38, 48))
-    fill(0, 400, SCREEN_WIDTH, 500, (14, 28, 38))
-    draw_rectangle(0, 149, SCREEN_WIDTH - 1, 153, 62, 88, 96, filled=True)
-    draw_rectangle(0, 396, SCREEN_WIDTH - 1, 400, 62, 88, 96, filled=True)
-
-    for x in range(120, 1500, 190):
-        draw_rectangle(x - 38, 410, x + 38, 500, 31, 49, 57, filled=True)
-        draw_rectangle(x - 28, 420, x + 28, 490, 18, 34, 43, filled=True)
+    hub_background.clip_draw(
+        0, 0, hub_background.w, hub_background.h,
+        SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2,
+        SCREEN_WIDTH, SCREEN_HEIGHT,
+    )
+    hub_middleground.clip_draw(
+        0, 0, hub_middleground.w, hub_middleground.h,
+        SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2,
+        SCREEN_WIDTH, SCREEN_HEIGHT,
+    )
 
     door_x, door_y = HUB_SHADOW_DOOR
     draw_rectangle(door_x - 105, door_y - 118, door_x + 105, door_y + 118,
@@ -1277,6 +1280,11 @@ def main() -> None:
     sprite = load_image(str(assets / "player_sprite.png"))
     props = load_image(str(assets / "cellar_props.png"))
     pico2d.SDL_SetTextureScaleMode(props.texture, pico2d.SDL_ScaleModeNearest)
+    gothic_town = assets.parent / "assets" / "gothic" / "town" / "GothicVania-town-files" / "PNG" / "environment" / "layers"
+    hub_background = load_image(str(gothic_town / "background.png"))
+    hub_middleground = load_image(str(gothic_town / "middleground.png"))
+    pico2d.SDL_SetTextureScaleMode(hub_background.texture, pico2d.SDL_ScaleModeNearest)
+    pico2d.SDL_SetTextureScaleMode(hub_middleground.texture, pico2d.SDL_ScaleModeNearest)
     monster_sprites = {
         kind: load_image(str(assets / f"cellar_{kind}.png")) for kind in MONSTER_ART
     }
@@ -1493,7 +1501,8 @@ def main() -> None:
             draw_pause_overlay(menu_font, hint_font, selected_pause_item)
         elif screen == "hub":
             draw_hub(
-                heading_font, hint_font, sprite, hub_x, hub_y,
+                heading_font, hint_font, sprite,
+                hub_background, hub_middleground, hub_x, hub_y,
                 hub_facing, hub_frame, run.elapsed,
             )
         elif screen == "settings":
