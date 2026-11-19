@@ -1,4 +1,5 @@
 import ctypes
+import random
 from bisect import bisect_right
 from collections import deque
 from math import atan2, cos, hypot, pi, sin
@@ -1008,6 +1009,7 @@ class CellarRun:
     def __init__(self) -> None:
         self.routes: list[list[MovementSample]] = []
         self.mirror_routes: list[list[MovementSample]] = []
+        self.events: list[tuple[str, float, float]] = []
         self.reset()
 
     @property
@@ -1043,10 +1045,13 @@ class CellarRun:
     def complete_round(self) -> str:
         if len(self.recording) < 2:
             return "playing"
+        door_x, door_y = tile_center(*GOAL_TILE)
         self.routes.append(self.recording)
         if len(self.routes) == len(ROUNDS):
+            self.events.append(("clear", door_x, door_y))
             return "clear"
         self.mirror_routes.append(reflected_route(self.recording))
+        self.events.append(("next", door_x, door_y))
         self.begin_round("분신이 경로를 반복합니다. 오래 머물수록 더 빨라집니다.")
         return "next"
 
@@ -1067,6 +1072,7 @@ class CellarRun:
                     self.ghosts.append(Ghost(pose, mirrored, harmless))
 
     def update(self, move_x: int, move_y: int, delta_time: float) -> str:
+        self.events.clear()
         if delta_time <= 0.0:
             return "playing"
         # 이동 속도에만 감속을 적용한다. 제한 시간과 분신은 계속 진행한다.
@@ -1115,24 +1121,390 @@ class CellarRun:
             self.monster_contact_ready = self.elapsed + MONSTER_CONTACT_COOLDOWN
             self.notice = "몬스터와 부딪혀 잠시 느려졌습니다."
             self.notice_until = self.slow_until
+            self.events.append(("monster", self.x, self.y))
         # 같은 위치에서 출발한 기록이 겹쳐도 계단 앞에서는 안전하다.
         if hypot(self.x - PLAYER_START[0], self.y - PLAYER_START[1]) > START_SAFE_RADIUS:
             for ghost in self.ghosts:
                 if not ghost.harmless and hypot(self.x - ghost.pose.x, self.y - ghost.pose.y) < GHOST_HIT_RADIUS:
+                    hit_x, hit_y = self.x, self.y
                     self.reset("분신과 접촉했습니다. 1라운드부터 다시 시작합니다.")
+                    self.events.append(("ghost", hit_x, hit_y))
                     return "reset"
         if self.elapsed >= self.time_limit:
+            hit_x, hit_y = self.x, self.y
             self.reset("시간이 끝났습니다. 1라운드부터 다시 시작합니다.")
+            self.events.append(("timeout", hit_x, hit_y))
             return "reset"
         key_x, key_y = tile_center(*self.key_tile)
         if not self.has_key and hypot(self.x - key_x, self.y - key_y) < 24:
             self.has_key = True
             self.notice = "열쇠를 찾았습니다. 북동쪽 철문으로 가세요."
             self.notice_until = self.elapsed + 2.5
+            self.events.append(("key", key_x, key_y))
         door_x, door_y = tile_center(*GOAL_TILE)
         if self.has_key and hypot(self.x - door_x, self.y - door_y) < 25:
             return self.complete_round()
         return "playing"
+
+
+class SoundBank:
+    """Manage gothic BGM loops and SFX chunks safely with the sound setting toggle."""
+
+    BGM_VOLUME = 76
+    SFX_VOLUME = 104
+
+    def __init__(self, sounds_dir: Path) -> None:
+        self.enabled = True
+        self.current_bgm: str | None = None
+        self.bgms: dict[str, object] = {}
+        self.sfx: dict[str, object] = {}
+        if not pico2d_core.audio_on or not sounds_dir.exists():
+            return
+        for name in ("hub", "cellar"):
+            path = sounds_dir / f"bgm_{name}.wav"
+            if path.exists():
+                self.bgms[name] = pico2d.load_music(str(path))
+        for name in (
+            "ui_move", "ui_confirm", "story_tick", "step",
+            "key", "round_clear", "stage_clear", "monster_hit", "ghost_hit",
+        ):
+            path = sounds_dir / f"sfx_{name}.wav"
+            if path.exists():
+                self.sfx[name] = pico2d.load_wav(str(path))
+        self.set_enabled(True)
+
+    def set_enabled(self, enabled: bool) -> None:
+        self.enabled = enabled
+        if not pico2d_core.audio_on:
+            return
+        Mix_Volume(-1, self.SFX_VOLUME if enabled else 0)
+        Mix_VolumeMusic(self.BGM_VOLUME if enabled else 0)
+
+    def set_paused_duck(self, paused: bool) -> None:
+        if not pico2d_core.audio_on or not self.enabled:
+            return
+        Mix_VolumeMusic(self.BGM_VOLUME // 3 if paused else self.BGM_VOLUME)
+
+    def play_bgm(self, name: str) -> None:
+        if name == self.current_bgm:
+            return
+        bgm = self.bgms.get(name)
+        if bgm is None:
+            return
+        self.current_bgm = name
+        bgm.repeat_play()
+        Mix_VolumeMusic(self.BGM_VOLUME if self.enabled else 0)
+
+    def play(self, name: str) -> None:
+        if not self.enabled:
+            return
+        chunk = self.sfx.get(name)
+        if chunk is not None:
+            chunk.play()
+
+    def close(self) -> None:
+        if pico2d_core.audio_on:
+            pico2d.Mix_HaltMusic()
+        self.bgms.clear()
+        self.sfx.clear()
+
+
+class Particle:
+    __slots__ = ("x", "y", "vx", "vy", "age", "life", "size", "color")
+
+    def __init__(
+        self,
+        x: float,
+        y: float,
+        vx: float,
+        vy: float,
+        life: float,
+        size: float,
+        color: tuple[int, int, int],
+    ) -> None:
+        self.x = x
+        self.y = y
+        self.vx = vx
+        self.vy = vy
+        self.age = 0.0
+        self.life = life
+        self.size = size
+        self.color = color
+
+
+class ShockRing:
+    __slots__ = ("x", "y", "start_r", "end_r", "age", "life", "color")
+
+    def __init__(
+        self,
+        x: float,
+        y: float,
+        start_r: float,
+        end_r: float,
+        life: float,
+        color: tuple[int, int, int],
+    ) -> None:
+        self.x = x
+        self.y = y
+        self.start_r = start_r
+        self.end_r = end_r
+        self.age = 0.0
+        self.life = life
+        self.color = color
+
+
+class EffectsManager:
+    """Lightweight particles, shockwaves, screen flash, and damped camera shake."""
+
+    def __init__(self) -> None:
+        self.particles: list[Particle] = []
+        self.rings: list[ShockRing] = []
+        self.flash_color: tuple[int, int, int] = (255, 255, 255)
+        self.flash_alpha: int = 0
+        self.flash_age: float = 0.0
+        self.flash_life: float = 0.0
+        self.shake_age: float = 0.0
+        self.shake_duration: float = 0.0
+        self.shake_magnitude: float = 0.0
+
+    def clear(self) -> None:
+        self.particles.clear()
+        self.rings.clear()
+        self.flash_life = 0.0
+        self.shake_duration = 0.0
+
+    def trigger_flash(self, color: tuple[int, int, int], alpha: int, life: float) -> None:
+        self.flash_color = color
+        self.flash_alpha = alpha
+        self.flash_age = 0.0
+        self.flash_life = life
+
+    def trigger_shake(self, magnitude: float, duration: float) -> None:
+        self.shake_magnitude = max(self.shake_magnitude, magnitude)
+        self.shake_duration = max(self.shake_duration - self.shake_age, duration)
+        self.shake_age = 0.0
+
+    def spawn_dust(self, x: float, y: float, color: tuple[int, int, int] = (176, 168, 154)) -> None:
+        if len(self.particles) > 140:
+            return
+        self.particles.append(
+            Particle(
+                x + random.uniform(-6, 6),
+                y - 12 + random.uniform(-3, 3),
+                random.uniform(-16, 16),
+                random.uniform(6, 22),
+                random.uniform(0.28, 0.48),
+                random.uniform(3.0, 5.0),
+                color,
+            )
+        )
+
+    def burst_key(self, x: float, y: float) -> None:
+        for index in range(22):
+            angle = index * (2 * pi / 22) + random.uniform(-0.15, 0.15)
+            speed = random.uniform(70, 210)
+            color = (255, 224, 118) if index % 2 == 0 else (255, 186, 78)
+            self.particles.append(
+                Particle(x, y, cos(angle) * speed, sin(angle) * speed,
+                         random.uniform(0.35, 0.65), random.uniform(4.0, 7.0), color)
+            )
+        self.rings.append(ShockRing(x, y, 12, 86, 0.42, (255, 220, 112)))
+        self.rings.append(ShockRing(x, y, 8, 52, 0.28, (255, 245, 190)))
+        self.trigger_flash((255, 214, 110), 48, 0.22)
+        self.trigger_shake(4.5, 0.16)
+
+    def burst_round_clear(self, x: float, y: float) -> None:
+        for index in range(26):
+            angle = index * (2 * pi / 26) + random.uniform(-0.12, 0.12)
+            speed = random.uniform(80, 240)
+            color = (122, 232, 206) if index % 2 == 0 else (246, 216, 146)
+            self.particles.append(
+                Particle(x, y, cos(angle) * speed, sin(angle) * speed,
+                         random.uniform(0.42, 0.78), random.uniform(4.0, 7.5), color)
+            )
+        self.rings.append(ShockRing(x, y, 14, 125, 0.52, (124, 232, 208)))
+        self.trigger_flash((142, 228, 212), 62, 0.34)
+        self.trigger_shake(5.5, 0.20)
+
+    def burst_monster_hit(self, x: float, y: float) -> None:
+        for index in range(16):
+            angle = index * (2 * pi / 16) + random.uniform(-0.2, 0.2)
+            speed = random.uniform(60, 175)
+            color = (248, 152, 76) if index % 2 == 0 else (228, 98, 72)
+            self.particles.append(
+                Particle(x, y, cos(angle) * speed, sin(angle) * speed,
+                         random.uniform(0.28, 0.52), random.uniform(4.0, 6.5), color)
+            )
+        self.rings.append(ShockRing(x, y, 14, 72, 0.32, (246, 154, 82)))
+        self.trigger_flash((238, 124, 68), 64, 0.24)
+        self.trigger_shake(9.0, 0.26)
+
+    def burst_ghost_hit(self, x: float, y: float) -> None:
+        for index in range(28):
+            angle = index * (2 * pi / 28) + random.uniform(-0.14, 0.14)
+            speed = random.uniform(90, 270)
+            color = (112, 228, 244) if index % 2 == 0 else (238, 108, 124)
+            self.particles.append(
+                Particle(x, y, cos(angle) * speed, sin(angle) * speed,
+                         random.uniform(0.40, 0.75), random.uniform(4.5, 8.0), color)
+            )
+        self.rings.append(ShockRing(x, y, 16, 140, 0.48, (112, 228, 244)))
+        self.rings.append(ShockRing(x, y, 10, 95, 0.36, (240, 108, 128)))
+        self.trigger_flash((128, 214, 232), 110, 0.42)
+        self.trigger_shake(13.0, 0.38)
+
+    def update(self, delta_time: float) -> None:
+        if delta_time <= 0.0:
+            return
+        drag = max(0.0, 1.0 - delta_time * 3.8)
+        alive_particles: list[Particle] = []
+        for particle in self.particles:
+            particle.age += delta_time
+            if particle.age < particle.life:
+                particle.x += particle.vx * delta_time
+                particle.y += particle.vy * delta_time
+                particle.vx *= drag
+                particle.vy *= drag
+                alive_particles.append(particle)
+        self.particles = alive_particles
+
+        alive_rings: list[ShockRing] = []
+        for ring in self.rings:
+            ring.age += delta_time
+            if ring.age < ring.life:
+                alive_rings.append(ring)
+        self.rings = alive_rings
+
+        if self.flash_life > 0.0:
+            self.flash_age += delta_time
+            if self.flash_age >= self.flash_life:
+                self.flash_life = 0.0
+
+        if self.shake_duration > 0.0:
+            self.shake_age += delta_time
+            if self.shake_age >= self.shake_duration:
+                self.shake_duration = 0.0
+                self.shake_magnitude = 0.0
+
+    def shake_offset(self) -> tuple[int, int]:
+        if self.shake_duration <= 0.0 or self.shake_magnitude <= 0.0:
+            return 0, 0
+        strength = (1.0 - self.shake_age / self.shake_duration) * self.shake_magnitude
+        return int(random.uniform(-strength, strength)), int(random.uniform(-strength, strength))
+
+    def draw_world(self) -> None:
+        for ring in self.rings:
+            progress = ring.age / ring.life
+            radius = int(ring.start_r + (ring.end_r - ring.start_r) * (1 - (1 - progress) ** 2))
+            alpha = max(0, int(210 * (1.0 - progress)))
+            if radius > 1 and alpha > 2:
+                draw_circle(ring.x, ring.y, radius, *ring.color, alpha)
+                if radius > 3:
+                    draw_circle(ring.x, ring.y, radius - 2, *ring.color, alpha // 2)
+        for particle in self.particles:
+            progress = particle.age / particle.life
+            alpha = max(0, int(235 * (1.0 - progress)))
+            size = max(2.0, particle.size * (1.0 - progress * 0.45))
+            fill(particle.x - size / 2, particle.y - size / 2, size, size, (*particle.color, alpha))
+
+    def draw_overlay(self) -> None:
+        if self.flash_life > 0.0:
+            progress = self.flash_age / self.flash_life
+            alpha = max(0, int(self.flash_alpha * (1.0 - progress) ** 1.5))
+            if alpha > 2:
+                fill(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, (*self.flash_color, alpha))
+
+
+def draw_ghost_trails(run: CellarRun) -> None:
+    """Draw subtle floor route threads, 1.2s ahead telegraph lines, and upcoming spawn rings."""
+    clock = pressure_clock(run.elapsed)
+    for routes, mirrored, start, interval in (
+        (run.routes, False, FIRST_GHOST_DELAY, GHOST_INTERVAL),
+        (run.mirror_routes, True, MIRROR_START, MIRROR_INTERVAL),
+    ):
+        color = (208, 147, 255) if mirrored else (102, 220, 240)
+        for index, route in enumerate(routes):
+            if not route:
+                continue
+            spawn = start + index * interval
+            time_until_spawn = spawn - run.elapsed
+            # 스폰 2.5초 전부터 출발 위치에 수렴하는 예고 링을 표시한다.
+            if 0.0 < time_until_spawn <= 2.5:
+                progress = 1.0 - time_until_spawn / 2.5
+                sx, sy = route[0].x, route[0].y
+                outer_r = int(42 - 22 * progress)
+                alpha = int(75 + 135 * progress)
+                draw_circle(sx, sy, outer_r, *color, alpha)
+                draw_circle(sx, sy, max(4, int(10 * progress)), *color, alpha // 2, filled=True)
+                continue
+            if time_until_spawn > 2.5:
+                continue
+
+            # 1) 바닥에 깔리는 희미한 전체 과거 경로 점선
+            duration = route[-1].elapsed
+            if duration > 0.2:
+                step = 0.42
+                sample_t = 0.0
+                while sample_t <= duration:
+                    pt = replay_at(route, sample_t)
+                    if pt is not None:
+                        fill(pt.x - 1.5, pt.y - 1.5, 3, 3, (*color, 44 if mirrored else 56))
+                    sample_t += step
+
+            # 2) 현재 분신이 앞으로 ~1.2초 동안 이동할 방향 예고선
+            ghost_clock = clock - pressure_clock(spawn)
+            current = replay_at(route, ghost_clock)
+            if current is None:
+                continue
+            prev_x, prev_y = current.x, current.y
+            harmless = mirrored and run.elapsed < spawn + MIRROR_GRACE
+            base_alpha = 70 if harmless else 145
+            steps = 7
+            for step_i in range(1, steps + 1):
+                ahead = replay_at(route, ghost_clock + step_i * 0.22)
+                if ahead is None:
+                    break
+                fade = 1.0 - (step_i - 1) / steps
+                alpha = max(24, int(base_alpha * fade))
+                if hypot(ahead.x - prev_x, ahead.y - prev_y) < 120:
+                    draw_line(prev_x, prev_y, ahead.x, ahead.y, *color, alpha)
+                if step_i == steps:
+                    draw_circle(ahead.x, ahead.y, 4, *color, alpha + 25, filled=True)
+                prev_x, prev_y = ahead.x, ahead.y
+
+
+def draw_player_status_effects(run: CellarRun) -> None:
+    """Draw slow indicator, near-ghost danger warning, and unlocked exit door pulse."""
+    # 슬로우 상태일 때 발밑에 주황빛 감속 링 표시
+    if run.elapsed < run.slow_until:
+        pulse = 0.5 + 0.5 * sin(run.elapsed * 16.0)
+        draw_circle(run.x, run.y - 6, int(22 + 4 * pulse), 246, 164, 96, 175)
+
+    # 안전 구역 밖에서 치명적인 분신이 가까이 다가오면 경고 링 표시
+    if hypot(run.x - PLAYER_START[0], run.y - PLAYER_START[1]) > START_SAFE_RADIUS:
+        closest = 9999.0
+        for ghost in run.ghosts:
+            if not ghost.harmless:
+                closest = min(closest, hypot(run.x - ghost.pose.x, run.y - ghost.pose.y))
+        if closest < 130.0:
+            urgency = max(0.0, min(1.0, (130.0 - closest) / 95.0))
+            pulse = 0.5 + 0.5 * sin(run.elapsed * 18.0)
+            ring_r = int(26 + 8 * pulse)
+            draw_circle(run.x, run.y, ring_r, 246, 98, 108, int(85 + 140 * urgency))
+            # 화면 상하좌우 얇은 붉은 위험 테두리
+            edge_alpha = int(42 * urgency * (0.6 + 0.4 * pulse))
+            fill(0, 0, SCREEN_WIDTH, 10, (235, 68, 82, edge_alpha))
+            fill(0, SCREEN_HEIGHT - 10, SCREEN_WIDTH, 10, (235, 68, 82, edge_alpha))
+            fill(0, 0, 10, SCREEN_HEIGHT, (235, 68, 82, edge_alpha))
+            fill(SCREEN_WIDTH - 10, 0, 10, SCREEN_HEIGHT, (235, 68, 82, edge_alpha))
+
+    # 열쇠 획득 후 북동쪽 출구 철문에 생동감 있는 가이드 펄스 표시
+    if run.has_key:
+        door_x, door_y = tile_center(*GOAL_TILE)
+        pulse = 0.5 + 0.5 * sin(run.elapsed * 5.0)
+        draw_circle(door_x, door_y, int(34 + 6 * pulse), 108, 226, 178, int(52 + 38 * pulse))
+        draw_circle(door_x, door_y, 24, 108, 226, 178, int(26 + 20 * pulse), filled=True)
+        fill(door_x - 22, door_y - 27, 44, 4, (118, 236, 188))
 
 
 def draw_ghost(sprite: Image, ghost: Ghost) -> None:
@@ -1177,10 +1549,16 @@ def draw_run_hud(menu_font: Font, hint_font: Font, run: CellarRun) -> None:
     menu_font.draw(27, 867, "대저택 지하 저장고", (239, 209, 158))
     remaining = max(0, int(run.time_limit - run.elapsed + 0.999))
     key = "YES" if run.has_key else "NO"
+    low_time = remaining <= 10
+    time_pulse = low_time and int(run.elapsed * 4) % 2 == 0
+    hint_font.draw(316, 865, f"ROUND {run.round_number}/{len(ROUNDS)}", (224, 210, 187))
     hint_font.draw(
-        316, 865,
-        f"ROUND {run.round_number}/{len(ROUNDS)}   TIME {remaining:02d}s   KEY {key}",
-        (224, 210, 187),
+        444, 865, f"TIME {remaining:02d}s",
+        (255, 114, 104) if time_pulse else ((248, 166, 112) if low_time else (224, 210, 187)),
+    )
+    hint_font.draw(
+        564, 865, f"KEY {key}",
+        (118, 234, 184) if run.has_key else (224, 210, 187),
     )
     mirrors = sum(ghost.mirrored for ghost in run.ghosts)
     originals = len(run.ghosts) - mirrors
@@ -1887,6 +2265,8 @@ def main() -> None:
     hub = HubHall(props)
     cellar = Cellar(props)
     run = CellarRun()
+    sounds = SoundBank(assets / "sounds")
+    effects = EffectsManager()
     held_keys: set[int] = set()
     previous_time = perf_counter()
     running = True
@@ -1897,50 +2277,85 @@ def main() -> None:
     hub_facing, hub_frame = "up", 0
     hub_animation_time = 0.0
     hub_elapsed = 0.0
+    last_hub_frame = 0
+    last_game_frame = 0
+    ghost_mote_timer = 0.0
     story_scene = 0
     story_scene_elapsed = 0.0
     story_total_elapsed = 0.0
     story_reveal_all = False
+    last_story_chars = 0
     selected_menu_item = 0
     selected_settings_item = 0
     selected_pause_item = 0
     sound_enabled = True
     fullscreen = False
+    sounds.play_bgm("hub")
 
     def enter_hub() -> None:
         nonlocal screen, hub_x, hub_y, hub_vx, hub_vy
-        nonlocal hub_facing, hub_frame, hub_animation_time, hub_elapsed
+        nonlocal hub_facing, hub_frame, hub_animation_time, hub_elapsed, last_hub_frame
         screen = "hub"
         hub_x, hub_y = HUB_START
         hub_vx = hub_vy = 0.0
         hub_facing, hub_frame = "up", 0
         hub_animation_time = 0.0
         hub_elapsed = 0.0
+        last_hub_frame = 0
+        effects.clear()
+        sounds.set_paused_duck(False)
+        sounds.play_bgm("hub")
         held_keys.clear()
 
     def start_story() -> None:
         nonlocal screen, story_scene, story_scene_elapsed
-        nonlocal story_total_elapsed, story_reveal_all
+        nonlocal story_total_elapsed, story_reveal_all, last_story_chars
         screen = "story"
         story_scene = 0
         story_scene_elapsed = 0.0
         story_total_elapsed = 0.0
         story_reveal_all = False
+        last_story_chars = 0
+        sounds.play_bgm("hub")
         held_keys.clear()
 
     def advance_story() -> None:
-        nonlocal story_scene, story_scene_elapsed, story_reveal_all
+        nonlocal story_scene, story_scene_elapsed, story_reveal_all, last_story_chars
         _, lines = INTRO_SCENES[story_scene]
         total_chars = sum(len(line) for line in lines)
         if not story_reveal_all and int(story_scene_elapsed * STORY_TYPE_SPEED) < total_chars:
             story_reveal_all = True
+            last_story_chars = total_chars
+            sounds.play("ui_move")
             return
+        sounds.play("ui_confirm")
         if story_scene + 1 < len(INTRO_SCENES):
             story_scene += 1
             story_scene_elapsed = 0.0
             story_reveal_all = False
+            last_story_chars = 0
         else:
             enter_hub()
+
+    def handle_run_events() -> None:
+        for kind, ex, ey in run.events:
+            if kind == "key":
+                sounds.play("key")
+                effects.burst_key(ex, ey)
+            elif kind == "monster":
+                sounds.play("monster_hit")
+                effects.burst_monster_hit(ex, ey)
+            elif kind in ("ghost", "timeout"):
+                sounds.play("ghost_hit")
+                effects.burst_ghost_hit(ex, ey)
+            elif kind == "next":
+                sounds.play("round_clear")
+                effects.burst_round_clear(ex, ey)
+            elif kind == "clear":
+                sounds.play("stage_clear")
+                effects.burst_round_clear(ex, ey)
+                sounds.play_bgm("hub")
+        run.events.clear()
 
     while running:
         current_time = perf_counter()
@@ -1953,22 +2368,31 @@ def main() -> None:
             elif event.type == SDL_KEYDOWN:
                 if event.key == SDLK_ESCAPE:
                     if screen == "settings":
+                        sounds.play("ui_move")
                         if pause_menu_open:
                             screen = "pause"
                         else:
                             screen = "menu"
                     elif screen == "game":
+                        sounds.play("ui_move")
                         screen = "pause"
                         pause_menu_open = True
+                        sounds.set_paused_duck(True)
                         held_keys.clear()
                     elif screen == "pause":
+                        sounds.play("ui_move")
                         screen = "game"
                         pause_menu_open = False
+                        sounds.set_paused_duck(False)
                     elif screen == "clear":
+                        sounds.play("ui_move")
                         screen = "menu"
+                        sounds.play_bgm("hub")
                     elif screen == "story":
+                        sounds.play("ui_move")
                         enter_hub()
                     elif screen == "hub":
+                        sounds.play("ui_move")
                         screen = "menu"
                         held_keys.clear()
                     else:
@@ -1978,16 +2402,23 @@ def main() -> None:
                 ):
                     advance_story()
                 elif screen == "clear" and event.key in (SDLK_RETURN, SDLK_KP_ENTER):
+                    sounds.play("ui_confirm")
                     enter_hub()
                 elif screen == "hub" and event.key in (SDLK_RETURN, SDLK_KP_ENTER):
                     door_x, door_y = HUB_SHADOW_DOOR
                     if hypot(hub_x - door_x, hub_y - door_y) <= HUB_DOOR_RADIUS:
+                        sounds.play("ui_confirm")
                         screen = "game"
                         run.reset("열쇠를 찾아 북동쪽 철문으로 가세요.")
+                        effects.clear()
+                        last_game_frame = 0
+                        sounds.set_paused_duck(False)
+                        sounds.play_bgm("cellar")
                         held_keys.clear()
                 elif screen == "game" and event.key in (SDLK_RETURN, SDLK_KP_ENTER):
                     if run.near_test_door():
                         result = run.complete_round()
+                        handle_run_events()
                         held_keys.clear()
                         delta_time = 0.0
                         if result == "clear":
@@ -1998,17 +2429,24 @@ def main() -> None:
                     held_keys.add(event.key)
                 elif screen == "menu" and event.key in (SDLK_UP, SDLK_w):
                     selected_menu_item = (selected_menu_item - 1) % 3
+                    sounds.play("ui_move")
                 elif screen == "menu" and event.key in (SDLK_DOWN, SDLK_s):
                     selected_menu_item = (selected_menu_item + 1) % 3
+                    sounds.play("ui_move")
                 elif screen == "pause" and event.key in (SDLK_UP, SDLK_w):
                     selected_pause_item = (selected_pause_item - 1) % len(PAUSE_ITEMS)
+                    sounds.play("ui_move")
                 elif screen == "pause" and event.key in (SDLK_DOWN, SDLK_s):
                     selected_pause_item = (selected_pause_item + 1) % len(PAUSE_ITEMS)
+                    sounds.play("ui_move")
                 elif screen == "settings" and event.key in (SDLK_UP, SDLK_w):
                     selected_settings_item = (selected_settings_item - 1) % 3
+                    sounds.play("ui_move")
                 elif screen == "settings" and event.key in (SDLK_DOWN, SDLK_s):
                     selected_settings_item = (selected_settings_item + 1) % 3
+                    sounds.play("ui_move")
                 elif screen == "menu" and event.key in (SDLK_RETURN, SDLK_KP_ENTER):
+                    sounds.play("ui_confirm")
                     if selected_menu_item == 0:
                         start_story()
                     elif selected_menu_item == 1:
@@ -2017,6 +2455,7 @@ def main() -> None:
                         pause_menu_open = False
                         screen = "settings"
                 elif screen == "pause" and event.key in (SDLK_RETURN, SDLK_KP_ENTER):
+                    sounds.play("ui_confirm")
                     if selected_pause_item == 0:
                         pause_menu_open = True
                         screen = "settings"
@@ -2027,25 +2466,33 @@ def main() -> None:
                 ):
                     if selected_settings_item == 0:
                         sound_enabled = not sound_enabled
-                        set_sound_enabled(sound_enabled)
+                        sounds.set_enabled(sound_enabled)
+                        sounds.play("ui_confirm")
                     elif selected_settings_item == 1:
                         fullscreen = not fullscreen
                         set_display_mode(fullscreen)
+                        sounds.play("ui_confirm")
                     else:
+                        sounds.play("ui_move")
                         screen = "pause" if pause_menu_open else "menu"
             elif event.type == SDL_MOUSEMOTION and screen in ("menu", "settings"):
                 mouse_x, mouse_y = mouse_event_to_canvas_position(event.x, event.y)
                 hovered_item = menu_item_at(screen, mouse_x, mouse_y)
                 if hovered_item is not None:
                     if screen == "menu":
-                        selected_menu_item = hovered_item
+                        if selected_menu_item != hovered_item:
+                            selected_menu_item = hovered_item
+                            sounds.play("ui_move")
                     else:
-                        selected_settings_item = hovered_item
+                        if selected_settings_item != hovered_item:
+                            selected_settings_item = hovered_item
+                            sounds.play("ui_move")
             elif event.type == SDL_MOUSEMOTION and screen == "pause":
                 mouse_x, mouse_y = mouse_event_to_canvas_position(event.x, event.y)
                 hovered_item = menu_item_at(screen, mouse_x, mouse_y)
-                if hovered_item is not None:
+                if hovered_item is not None and selected_pause_item != hovered_item:
                     selected_pause_item = hovered_item
+                    sounds.play("ui_move")
             elif (
                 event.type == SDL_MOUSEBUTTONDOWN
                 and event.button == SDL_BUTTON_LEFT
@@ -2061,6 +2508,7 @@ def main() -> None:
                 clicked_item = menu_item_at(screen, mouse_x, mouse_y)
                 if clicked_item is not None and screen == "menu":
                     selected_menu_item = clicked_item
+                    sounds.play("ui_confirm")
                     if clicked_item == 0:
                         start_story()
                     elif clicked_item == 1:
@@ -2070,6 +2518,7 @@ def main() -> None:
                         screen = "settings"
                 elif clicked_item is not None and screen == "pause":
                     selected_pause_item = clicked_item
+                    sounds.play("ui_confirm")
                     if clicked_item == 0:
                         pause_menu_open = True
                         screen = "settings"
@@ -2079,11 +2528,14 @@ def main() -> None:
                     selected_settings_item = clicked_item
                     if clicked_item == 0:
                         sound_enabled = not sound_enabled
-                        set_sound_enabled(sound_enabled)
+                        sounds.set_enabled(sound_enabled)
+                        sounds.play("ui_confirm")
                     elif clicked_item == 1:
                         fullscreen = not fullscreen
                         set_display_mode(fullscreen)
+                        sounds.play("ui_confirm")
                     else:
+                        sounds.play("ui_move")
                         screen = "pause" if pause_menu_open else "menu"
             elif event.type == SDL_KEYUP and event.key in KEY_DIRECTIONS:
                 held_keys.discard(event.key)
@@ -2091,6 +2543,14 @@ def main() -> None:
         if screen == "story":
             story_scene_elapsed += delta_time
             story_total_elapsed += delta_time
+            if not story_reveal_all:
+                _, lines = INTRO_SCENES[story_scene]
+                full_text = "".join(lines)
+                shown_count = min(len(full_text), int(story_scene_elapsed * STORY_TYPE_SPEED))
+                if shown_count - last_story_chars >= 2:
+                    if full_text[shown_count - 1] != " ":
+                        sounds.play("story_tick")
+                    last_story_chars = shown_count
 
         if screen == "hub":
             hub_elapsed += delta_time
@@ -2125,34 +2585,59 @@ def main() -> None:
                     hub_facing = "up" if move_y > 0 else "down"
                 hub_animation_time += delta_time
                 hub_frame = int(hub_animation_time * 8) % 4
+                if hub_frame != last_hub_frame and hub_frame in (1, 3):
+                    sounds.play("step")
+                last_hub_frame = hub_frame
             else:
                 hub_frame = 0
+                last_hub_frame = 0
 
         if screen == "game":
             move_x = sum(KEY_DIRECTIONS[key][0] for key in held_keys)
             move_y = sum(KEY_DIRECTIONS[key][1] for key in held_keys)
+            prev_pos = (run.x, run.y)
             result = run.update(move_x, move_y, delta_time)
+            handle_run_events()
+            if (run.x, run.y) != prev_pos and run.frame != last_game_frame and run.frame in (1, 3):
+                sounds.play("step")
+                effects.spawn_dust(run.x, run.y)
+            last_game_frame = run.frame
+            ghost_mote_timer += delta_time
+            if ghost_mote_timer >= 0.14:
+                ghost_mote_timer = 0.0
+                for ghost in run.ghosts:
+                    mote_color = (208, 147, 255) if ghost.mirrored else (102, 220, 240)
+                    effects.spawn_dust(ghost.pose.x, ghost.pose.y, mote_color)
+            effects.update(delta_time)
             if result != "playing":
                 held_keys.clear()
             if result == "clear":
                 screen = "clear"
 
         if screen in ("game", "pause", "clear") or (screen == "settings" and pause_menu_open):
+            shake_x, shake_y = effects.shake_offset() if screen == "game" else (0, 0)
+            if shake_x or shake_y:
+                clear_canvas()
+                viewport = pico2d.SDL_Rect(shake_x, shake_y, SCREEN_WIDTH, SCREEN_HEIGHT)
+                pico2d.SDL_RenderSetViewport(pico2d_core.renderer, ctypes.byref(viewport))
             cellar.draw_background()
             cellar.draw_shadows(run.x, run.y)
             draw_player(sprite, run.x, run.y, run.facing, run.frame)
             cellar.apply_lighting()
             cellar.draw_lamp_glints(run.elapsed)
+            draw_ghost_trails(run)
             draw_test_door(hint_font, run.near_test_door())
             for monster in run.monsters:
                 draw_monster(monster_sprites[monster.kind], monster)
             for ghost in run.ghosts:
                 draw_ghost(sprite, ghost)
-            if run.has_key:
-                door_x, door_y = tile_center(*GOAL_TILE)
-                fill(door_x - 20, door_y - 27, 40, 3, (108, 222, 175))
-            else:
+            if not run.has_key:
                 draw_key(*tile_center(*run.key_tile), run.elapsed)
+            draw_player_status_effects(run)
+            effects.draw_world()
+            if shake_x or shake_y:
+                pico2d.SDL_RenderSetViewport(pico2d_core.renderer, None)
+            effects.draw_overlay()
             draw_run_hud(menu_font, hint_font, run)
 
         if screen == "pause":
@@ -2199,6 +2684,7 @@ def main() -> None:
             )
         update_canvas()
 
+    sounds.close()
     for font in (title_font, menu_font, heading_font, hint_font):
         font.close()
     hub.close()
