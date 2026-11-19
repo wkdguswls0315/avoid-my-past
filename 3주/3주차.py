@@ -1266,14 +1266,15 @@ def main() -> None:
     title_font = load_font(
         str(Path(environ["WINDIR"]) / "Fonts" / "georgiab.ttf"), 68
     )
+    korean_font = str(Path(environ["WINDIR"]) / "Fonts" / "NotoSansKR-VF.ttf")
     menu_font = load_font(
-        str(Path(environ["WINDIR"]) / "Fonts" / "malgunbd.ttf"), 30
+        korean_font, 30
     )
     heading_font = load_font(
-        str(Path(environ["WINDIR"]) / "Fonts" / "malgunbd.ttf"), 46
+        korean_font, 46
     )
     hint_font = load_font(
-        str(Path(environ["WINDIR"]) / "Fonts" / "malgun.ttf"), 17
+        korean_font, 17
     )
     assets = Path(__file__).resolve().parents[1] / "assets"
     sprite = load_image(str(assets / "player_sprite.png"))
