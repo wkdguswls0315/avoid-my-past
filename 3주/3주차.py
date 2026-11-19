@@ -53,6 +53,11 @@ MENU_BUTTON_HALF_WIDTH = 290
 MENU_BUTTON_HALF_HEIGHT = 34
 MENU_ITEMS = (("게임 시작", 500), ("종료", 380), ("설정", 260))
 SETTINGS_ITEM_Y = (510, 390, 270)
+HUB_CENTER_X = SCREEN_WIDTH / 2
+HUB_START = (HUB_CENTER_X - 280, 270)
+HUB_SHADOW_DOOR = (HUB_CENTER_X + 420, 270)
+HUB_DOOR_RADIUS = 85
+HUB_SPEED = 210
 PAUSE_ITEMS = (("설정", 430), ("종료", 310))
 PAUSE_ITEM_Y = tuple(y for _, y in PAUSE_ITEMS)
 MAP = (
@@ -1125,6 +1130,51 @@ def draw_menu_footer(font: Font, text: str) -> None:
     draw_centered_text(font, text, (left + right) / 2, 85, (115, 145, 153))
 
 
+def draw_hub(
+    heading_font: Font,
+    hint_font: Font,
+    sprite: Image,
+    player_x: float,
+    player_y: float,
+    facing: str,
+    frame: int,
+    elapsed: float,
+) -> None:
+    fill(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, (10, 17, 25))
+    fill(0, 150, SCREEN_WIDTH, 250, (24, 38, 48))
+    fill(0, 400, SCREEN_WIDTH, 500, (14, 28, 38))
+    draw_rectangle(0, 149, SCREEN_WIDTH - 1, 153, 62, 88, 96, filled=True)
+    draw_rectangle(0, 396, SCREEN_WIDTH - 1, 400, 62, 88, 96, filled=True)
+
+    for x in range(120, 1500, 190):
+        draw_rectangle(x - 38, 410, x + 38, 500, 31, 49, 57, filled=True)
+        draw_rectangle(x - 28, 420, x + 28, 490, 18, 34, 43, filled=True)
+
+    door_x, door_y = HUB_SHADOW_DOOR
+    draw_rectangle(door_x - 105, door_y - 118, door_x + 105, door_y + 118,
+                   5, 13, 21, filled=True)
+    draw_rectangle(door_x - 92, door_y - 105, door_x + 92, door_y + 105,
+                   60, 91, 96, filled=False)
+    fill(door_x - 68, door_y - 82, 136, 164, (22, 39, 48))
+    draw_circle(door_x - 38, door_y - 5, 8, 173, 134, 92)
+    draw_circle(door_x + 38, door_y - 5, 8, 173, 134, 92)
+    draw_centered_text(heading_font, "그림자 기록실", door_x, door_y + 150,
+                       (224, 206, 174))
+    draw_centered_text(hint_font, "SHADOW MINI-GAME", door_x, door_y + 125,
+                       (127, 166, 168))
+
+    draw_player(sprite, player_x, player_y, facing, frame)
+    draw_centered_text(hint_font, "LOBBY", HUB_CENTER_X, 820,
+                       (196, 176, 143))
+    draw_centered_text(hint_font, "WASD / 방향키로 이동       ESC로 메인 메뉴",
+                       HUB_CENTER_X, 70, (115, 145, 153))
+
+    if hypot(player_x - door_x, player_y - door_y) <= HUB_DOOR_RADIUS:
+        fill(door_x - 125, 25, 250, 42, (23, 20, 24, 230))
+        draw_centered_text(hint_font, "ENTER로 그림자 기록실 입장",
+                           door_x, 47, (239, 209, 158))
+
+
 def draw_menu(
     title_font: Font,
     menu_font: Font,
@@ -1239,6 +1289,9 @@ def main() -> None:
     running = True
     screen = "menu"
     pause_menu_open = False
+    hub_x, hub_y = HUB_START
+    hub_facing, hub_frame = "down", 0
+    hub_animation_time = 0.0
     selected_menu_item = 0
     selected_settings_item = 0
     selected_pause_item = 0
@@ -1269,10 +1322,19 @@ def main() -> None:
                         pause_menu_open = False
                     elif screen == "clear":
                         screen = "menu"
+                    elif screen == "hub":
+                        screen = "menu"
+                        held_keys.clear()
                     else:
                         running = False
                 elif screen == "clear" and event.key in (SDLK_RETURN, SDLK_KP_ENTER):
                     screen = "menu"
+                elif screen == "hub" and event.key in (SDLK_RETURN, SDLK_KP_ENTER):
+                    door_x, door_y = HUB_SHADOW_DOOR
+                    if hypot(hub_x - door_x, hub_y - door_y) <= HUB_DOOR_RADIUS:
+                        screen = "game"
+                        run.reset("열쇠를 찾아 북동쪽 철문으로 가세요.")
+                        held_keys.clear()
                 elif screen == "game" and event.key in (SDLK_RETURN, SDLK_KP_ENTER):
                     if run.near_test_door():
                         result = run.complete_round()
@@ -1281,6 +1343,8 @@ def main() -> None:
                         if result == "clear":
                             screen = "clear"
                 elif screen == "game" and event.key in KEY_DIRECTIONS:
+                    held_keys.add(event.key)
+                elif screen == "hub" and event.key in KEY_DIRECTIONS:
                     held_keys.add(event.key)
                 elif screen == "menu" and event.key in (SDLK_UP, SDLK_w):
                     selected_menu_item = (selected_menu_item - 1) % 3
@@ -1296,8 +1360,10 @@ def main() -> None:
                     selected_settings_item = (selected_settings_item + 1) % 3
                 elif screen == "menu" and event.key in (SDLK_RETURN, SDLK_KP_ENTER):
                     if selected_menu_item == 0:
-                        screen = "game"
-                        run.reset("열쇠를 찾아 북동쪽 철문으로 가세요.")
+                        screen = "hub"
+                        hub_x, hub_y = HUB_START
+                        hub_facing, hub_frame = "down", 0
+                        hub_animation_time = 0.0
                         held_keys.clear()
                     elif selected_menu_item == 1:
                         running = False
@@ -1344,8 +1410,10 @@ def main() -> None:
                 if clicked_item is not None and screen == "menu":
                     selected_menu_item = clicked_item
                     if clicked_item == 0:
-                        screen = "game"
-                        run.reset("열쇠를 찾아 북동쪽 철문으로 가세요.")
+                        screen = "hub"
+                        hub_x, hub_y = HUB_START
+                        hub_facing, hub_frame = "down", 0
+                        hub_animation_time = 0.0
                         held_keys.clear()
                     elif clicked_item == 1:
                         running = False
@@ -1371,6 +1439,28 @@ def main() -> None:
                         screen = "pause" if pause_menu_open else "menu"
             elif event.type == SDL_KEYUP and event.key in KEY_DIRECTIONS:
                 held_keys.discard(event.key)
+
+        if screen == "hub":
+            move_x = sum(KEY_DIRECTIONS[key][0] for key in held_keys)
+            move_y = sum(KEY_DIRECTIONS[key][1] for key in held_keys)
+            direction_length = hypot(move_x, move_y)
+            previous_hub = hub_x, hub_y
+            if direction_length:
+                unit_x = move_x / direction_length
+                unit_y = move_y / direction_length
+                hub_x = max(80.0, min(SCREEN_WIDTH - 80.0,
+                                      hub_x + unit_x * HUB_SPEED * delta_time))
+                hub_y = max(170.0, min(650.0,
+                                      hub_y + unit_y * HUB_SPEED * delta_time))
+            if (hub_x, hub_y) != previous_hub:
+                if abs(move_x) > abs(move_y):
+                    hub_facing = "right" if move_x > 0 else "left"
+                else:
+                    hub_facing = "up" if move_y > 0 else "down"
+                hub_animation_time += delta_time
+                hub_frame = int(hub_animation_time * 8) % 4
+            else:
+                hub_frame = 0
 
         if screen == "game":
             move_x = sum(KEY_DIRECTIONS[key][0] for key in held_keys)
@@ -1401,6 +1491,11 @@ def main() -> None:
 
         if screen == "pause":
             draw_pause_overlay(menu_font, hint_font, selected_pause_item)
+        elif screen == "hub":
+            draw_hub(
+                heading_font, hint_font, sprite, hub_x, hub_y,
+                hub_facing, hub_frame, run.elapsed,
+            )
         elif screen == "settings":
             draw_settings(
                 heading_font, menu_font, hint_font, selected_settings_item,
