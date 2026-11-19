@@ -21,6 +21,7 @@ from pico2d import (
     SDLK_KP_ENTER,
     SDLK_RETURN,
     SDLK_RIGHT,
+    SDLK_SPACE,
     SDLK_UP,
     SDLK_a,
     SDLK_d,
@@ -87,6 +88,38 @@ HUB_LAMP_TILES = (
 )
 PAUSE_ITEMS = (("설정", 430), ("종료", 310))
 PAUSE_ITEM_Y = tuple(y for _, y in PAUSE_ITEMS)
+STORY_TYPE_SPEED = 26.0
+STORY_FADE_DURATION = 0.45
+INTRO_SCENES = (
+    (
+        "Ⅰ. 낯선 눈뜸",
+        (
+            "눈을 떠보니, 이름 모를 어두운 대저택 한가운데였다.",
+            "내가 누구인지, 어째서 이곳에 있는지는 아무것도 기억나지 않는다.",
+        ),
+    ),
+    (
+        "Ⅱ. 뒤따라오는 과거",
+        (
+            "등에 메어진 낡은 시계 가방만이 멈추지 않고 째깍거릴 뿐.",
+            "이곳에서는 내가 걸어온 과거의 흔적이 그림자가 되어 끝없이 되풀이된다.",
+        ),
+    ),
+    (
+        "Ⅲ. 피해야 할 기억",
+        (
+            "과거의 나에게 붙잡히면, 모든 시간은 다시 처음으로 되감기고 만다.",
+            "뒤돌아보지 마. 과거를 피해 열쇠를 찾아야 이 기억의 저택을 벗어날 수 있다.",
+        ),
+    ),
+    (
+        "Ⅳ. 시간의 홀",
+        (
+            "거대한 시계가 놓인 홀 너머로, 차가운 지하 저장고의 문이 열려 있다.",
+            "숨을 고르고 발을 내딛자. 나의 과거에서 벗어나기 위한 여정이 시작된다.",
+        ),
+    ),
+)
 MAP = (
     "#########################",
     "#.......................#",
@@ -1528,6 +1561,17 @@ def draw_hub(
         draw_rectangle(HUB_CENTER_X - 280, 12, HUB_CENTER_X + 280, 56, 136, 214, 208, filled=False)
         draw_centered_text(menu_font, "ENTER 키를 눌러 지하 저장고 입장", HUB_CENTER_X, 34, (239, 216, 168))
     else:
+        if elapsed < 5.8:
+            fill(HUB_CENTER_X - 430, 62, 860, 44, (16, 20, 30, 232))
+            draw_rectangle(
+                HUB_CENTER_X - 430, 62, HUB_CENTER_X + 430, 106,
+                164, 138, 92, filled=False,
+            )
+            draw_centered_text(
+                hint_font,
+                "\"등 뒤의 시계가 멈추지 않아... 먼저 위쪽 '지하 저장고'로 내려가 열쇠를 찾아보자.\"",
+                HUB_CENTER_X, 84, (240, 224, 188),
+            )
         fill(HUB_CENTER_X - 310, 14, 620, 36, (18, 22, 30, 220))
         draw_rectangle(HUB_CENTER_X - 310, 14, HUB_CENTER_X + 310, 50, 72, 92, 102, filled=False)
         draw_centered_text(
@@ -1535,6 +1579,208 @@ def draw_hub(
             "방향키 / WASD 이동     ·     위쪽 '지하 저장고' 입구로 이동하세요",
             HUB_CENTER_X, 32, (184, 196, 202),
         )
+
+
+def draw_story_sprite(
+    sprite: Image,
+    x: float,
+    y: float,
+    facing: str,
+    frame: int,
+    size: float,
+    tint: tuple[int, int, int] | None = None,
+    opacity: float = 1.0,
+) -> None:
+    if tint is not None:
+        pico2d.SDL_SetTextureColorMod(sprite.texture, *tint)
+    if opacity < 1.0:
+        sprite.opacify(opacity)
+    sprite.clip_draw(
+        frame * SPRITE_FRAME_SIZE, SPRITE_ROWS[facing],
+        SPRITE_FRAME_SIZE, SPRITE_FRAME_SIZE, x, y, size, size,
+    )
+    if opacity < 1.0:
+        sprite.opacify(1.0)
+    if tint is not None:
+        pico2d.SDL_SetTextureColorMod(sprite.texture, 255, 255, 255)
+
+
+def draw_story_illustration(sprite: Image, scene_index: int, elapsed: float) -> None:
+    cx, cy = SCREEN_WIDTH / 2, 575.0
+    pulse = 0.5 + 0.5 * sin(elapsed * 2.4)
+    walk_frame = int(elapsed * 5) % 4
+
+    if scene_index == 0:
+        # 1장: 어둠 속 희미하게 빛나는 거대한 시계 문양
+        for ring in range(3):
+            radius = int(128 + ring * 26 + sin(elapsed * 1.8 - ring * 0.9) * 5)
+            alpha = max(16, int(52 - ring * 14))
+            draw_circle(cx, cy, radius, 96, 178, 186, alpha)
+        draw_circle(cx, cy, 118, 16, 24, 38, 235, filled=True)
+        draw_circle(cx, cy, 116, 186, 152, 94)
+        draw_circle(cx, cy, 102, 82, 128, 138)
+        for hour in range(12):
+            angle = pi / 2 - hour * (pi / 6)
+            inner = 78 if hour % 3 == 0 else 88
+            color = (224, 188, 120) if hour % 3 == 0 else (126, 120, 102)
+            draw_line(
+                cx + cos(angle) * inner, cy + sin(angle) * inner,
+                cx + cos(angle) * 98, cy + sin(angle) * 98,
+                *color,
+            )
+        for angle, length, color in (
+            (pi / 2 - elapsed * 0.12, 54, (214, 174, 106)),
+            (pi / 2 - elapsed * 0.55, 78, (238, 212, 152)),
+            (pi / 2 - elapsed * 1.9, 90, (118, 218, 224)),
+        ):
+            draw_line(cx, cy, cx + cos(angle) * length, cy + sin(angle) * length, *color)
+        draw_circle(cx, cy, 8, 228, 190, 118, filled=True)
+        draw_story_sprite(sprite, cx, cy - 12, "down", 0, 126, opacity=0.92)
+    elif scene_index == 1:
+        # 2장: 앞으로 걷는 주인공과 뒤따르는 과거의 그림자 분신들
+        fill(cx - 340, cy - 102, 680, 14, (24, 32, 46, 220))
+        fill(cx - 340, cy - 88, 680, 2, (92, 134, 142, 150))
+        for dot in range(16):
+            dx = cx - 220 + dot * 26
+            alpha = int(60 + 50 * sin(elapsed * 3.0 - dot * 0.45))
+            draw_circle(dx, cy - 58, 3, 108, 212, 224, max(20, alpha), filled=True)
+        draw_circle(cx + 150, cy - 4, 72, 240, 184, 98, int(24 + 12 * pulse), filled=True)
+        draw_story_sprite(
+            sprite, cx - 195, cy - 6, "right", (walk_frame + 2) % 4, 136,
+            tint=(208, 147, 255), opacity=0.38,
+        )
+        draw_story_sprite(
+            sprite, cx - 35, cy - 6, "right", (walk_frame + 1) % 4, 146,
+            tint=(102, 220, 240), opacity=0.62,
+        )
+        draw_story_sprite(sprite, cx + 150, cy - 4, "right", walk_frame, 158)
+    elif scene_index == 2:
+        # 3장: 다가오는 분신과 저 앞의 황금 열쇠
+        fill(cx - 340, cy - 102, 680, 14, (26, 28, 40, 220))
+        draw_circle(cx - 175, cy - 8, 72 + int(6 * pulse), 224, 116, 128, 36, filled=True)
+        draw_circle(cx - 175, cy - 8, 72 + int(6 * pulse), 102, 220, 240, 120)
+        draw_story_sprite(
+            sprite, cx - 175, cy - 4, "right", walk_frame, 148,
+            tint=(102, 220, 240), opacity=0.72,
+        )
+        draw_story_sprite(sprite, cx + 10, cy - 4, "right", walk_frame, 154)
+        for step in range(7):
+            lx = cx + 95 + step * 18
+            draw_circle(lx, cy - 12, 2, 238, 200, 110, 130, filled=True)
+        key_x, key_y = cx + 235, cy - 8 + sin(elapsed * 3.2) * 7
+        draw_circle(key_x, key_y, 44, 245, 188, 78, int(30 + 18 * pulse), filled=True)
+        draw_circle(key_x, key_y, 26, 255, 214, 110, 80, filled=True)
+        draw_circle(key_x - 14, key_y + 3, 12, 255, 224, 128)
+        draw_line(key_x - 2, key_y + 3, key_x + 24, key_y + 3, 255, 224, 128)
+        draw_line(key_x + 14, key_y + 3, key_x + 14, key_y - 9, 255, 224, 128)
+        draw_line(key_x + 23, key_y + 3, key_x + 23, key_y - 12, 255, 224, 128)
+    else:
+        # 4장: 붉은 융단 너머 빛나는 지하 저장고의 문
+        fill(cx - 56, cy - 116, 112, 136, (64, 28, 36))
+        fill(cx - 46, cy - 116, 92, 132, (104, 40, 50))
+        fill(cx - 42, cy - 116, 2, 132, (182, 142, 82))
+        fill(cx + 40, cy - 116, 2, 132, (182, 142, 82))
+        # 석조 아치 문과 청록빛 기운
+        fill(cx - 88, cy + 4, 176, 124, (44, 48, 60))
+        fill(cx - 72, cy + 10, 144, 108, (22, 30, 42))
+        draw_rectangle(cx - 88, cy + 4, cx + 88, cy + 128, 168, 140, 92)
+        draw_circle(cx, cy + 56, 62, 102, 214, 218, int(34 + 22 * pulse), filled=True)
+        draw_circle(cx, cy + 56, 32, 188, 242, 240, int(52 + 24 * pulse), filled=True)
+        for bar in (-50, -34, 34, 50):
+            fill(cx + bar, cy + 12, 4, 104, (110, 122, 134))
+        draw_story_sprite(sprite, cx, cy - 68, "up", 0, 138)
+
+
+def draw_story(
+    menu_font: Font | CrispFont,
+    hint_font: Font | CrispFont,
+    sprite: Image,
+    scene_index: int,
+    scene_elapsed: float,
+    total_elapsed: float,
+    reveal_all: bool,
+) -> None:
+    clear_canvas()
+    # 깊은 밤하늘과 은은한 시간의 입자 배경
+    fill(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, (8, 13, 23))
+    for band_y, color in (
+        (540, (10, 17, 30)),
+        (660, (12, 21, 36)),
+        (780, (15, 25, 42)),
+    ):
+        fill(0, band_y, SCREEN_WIDTH, 120, color)
+
+    for mote in range(18):
+        mx = (mote * 97 + sin(total_elapsed * 0.4 + mote) * 28) % SCREEN_WIDTH
+        my = (mote * 53 + total_elapsed * (10 + mote % 5)) % SCREEN_HEIGHT
+        alpha = int(45 + 35 * sin(total_elapsed * 2.0 + mote * 1.3))
+        fill(mx, my, 3, 3, (148, 198, 206, max(12, alpha)))
+
+    chapter, lines = INTRO_SCENES[scene_index]
+
+    # 상단 장 제목
+    draw_centered_text(hint_font, chapter, SCREEN_WIDTH / 2, 816, (152, 196, 198))
+    fill(540, 794, 180, 2, (62, 98, 106))
+    fill(880, 794, 180, 2, (62, 98, 106))
+    fill(794, 789, 12, 12, (186, 152, 96))
+
+    # 장면 일러스트
+    draw_story_illustration(sprite, scene_index, total_elapsed)
+
+    # 하단 스토리 대사창
+    box_left, box_bottom, box_width, box_height = 200, 146, 1200, 192
+    fill(box_left, box_bottom, box_width, box_height, (13, 20, 32, 238))
+    draw_rectangle(
+        box_left, box_bottom, box_left + box_width, box_bottom + box_height,
+        142, 124, 90, filled=False,
+    )
+    draw_rectangle(
+        box_left + 6, box_bottom + 6,
+        box_left + box_width - 6, box_bottom + box_height - 6,
+        52, 82, 92, filled=False,
+    )
+
+    total_chars = sum(len(line) for line in lines)
+    visible_chars = total_chars if reveal_all else int(scene_elapsed * STORY_TYPE_SPEED)
+    remaining = visible_chars
+    line_y = (272, 212)
+    line_colors = ((242, 230, 202), (212, 218, 224))
+    for text, y, color in zip(lines, line_y, line_colors):
+        shown = text[: max(0, remaining)]
+        remaining -= len(text)
+        if shown:
+            draw_centered_text(menu_font, shown, SCREEN_WIDTH / 2, y, color)
+
+    if visible_chars >= total_chars:
+        blink = 0.5 + 0.5 * sin(total_elapsed * 5.0)
+        prompt_text = "시작하기 ▶" if scene_index == len(INTRO_SCENES) - 1 else "다음 ▶"
+        draw_centered_text(
+            hint_font, prompt_text, box_left + box_width - 78, box_bottom + 28,
+            (int(160 + 80 * blink), int(205 + 35 * blink), int(200 + 30 * blink)),
+        )
+
+    # 장면 진행 점 (● ○ ○ ○)
+    dot_spacing = 28
+    dots_start_x = SCREEN_WIDTH / 2 - (len(INTRO_SCENES) - 1) * dot_spacing / 2
+    for index in range(len(INTRO_SCENES)):
+        dx = dots_start_x + index * dot_spacing
+        if index == scene_index:
+            draw_circle(dx, 98, 6, 226, 190, 120, filled=True)
+        elif index < scene_index:
+            draw_circle(dx, 98, 5, 112, 178, 184, filled=True)
+        else:
+            draw_circle(dx, 98, 5, 76, 98, 112)
+
+    draw_centered_text(
+        hint_font,
+        "ENTER / SPACE / 클릭  다음     ·     ESC  건너뛰기",
+        SCREEN_WIDTH / 2, 48, (132, 162, 170),
+    )
+
+    # 장면 전환 페이드 인
+    if scene_elapsed < STORY_FADE_DURATION:
+        fade_alpha = int(255 * (1.0 - scene_elapsed / STORY_FADE_DURATION))
+        fill(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, (6, 10, 18, fade_alpha))
 
 
 def draw_menu(
@@ -1651,11 +1897,50 @@ def main() -> None:
     hub_facing, hub_frame = "up", 0
     hub_animation_time = 0.0
     hub_elapsed = 0.0
+    story_scene = 0
+    story_scene_elapsed = 0.0
+    story_total_elapsed = 0.0
+    story_reveal_all = False
     selected_menu_item = 0
     selected_settings_item = 0
     selected_pause_item = 0
     sound_enabled = True
     fullscreen = False
+
+    def enter_hub() -> None:
+        nonlocal screen, hub_x, hub_y, hub_vx, hub_vy
+        nonlocal hub_facing, hub_frame, hub_animation_time, hub_elapsed
+        screen = "hub"
+        hub_x, hub_y = HUB_START
+        hub_vx = hub_vy = 0.0
+        hub_facing, hub_frame = "up", 0
+        hub_animation_time = 0.0
+        hub_elapsed = 0.0
+        held_keys.clear()
+
+    def start_story() -> None:
+        nonlocal screen, story_scene, story_scene_elapsed
+        nonlocal story_total_elapsed, story_reveal_all
+        screen = "story"
+        story_scene = 0
+        story_scene_elapsed = 0.0
+        story_total_elapsed = 0.0
+        story_reveal_all = False
+        held_keys.clear()
+
+    def advance_story() -> None:
+        nonlocal story_scene, story_scene_elapsed, story_reveal_all
+        _, lines = INTRO_SCENES[story_scene]
+        total_chars = sum(len(line) for line in lines)
+        if not story_reveal_all and int(story_scene_elapsed * STORY_TYPE_SPEED) < total_chars:
+            story_reveal_all = True
+            return
+        if story_scene + 1 < len(INTRO_SCENES):
+            story_scene += 1
+            story_scene_elapsed = 0.0
+            story_reveal_all = False
+        else:
+            enter_hub()
 
     while running:
         current_time = perf_counter()
@@ -1681,13 +1966,19 @@ def main() -> None:
                         pause_menu_open = False
                     elif screen == "clear":
                         screen = "menu"
+                    elif screen == "story":
+                        enter_hub()
                     elif screen == "hub":
                         screen = "menu"
                         held_keys.clear()
                     else:
                         running = False
+                elif screen == "story" and event.key in (
+                    SDLK_RETURN, SDLK_KP_ENTER, SDLK_SPACE
+                ):
+                    advance_story()
                 elif screen == "clear" and event.key in (SDLK_RETURN, SDLK_KP_ENTER):
-                    screen = "menu"
+                    enter_hub()
                 elif screen == "hub" and event.key in (SDLK_RETURN, SDLK_KP_ENTER):
                     door_x, door_y = HUB_SHADOW_DOOR
                     if hypot(hub_x - door_x, hub_y - door_y) <= HUB_DOOR_RADIUS:
@@ -1719,13 +2010,7 @@ def main() -> None:
                     selected_settings_item = (selected_settings_item + 1) % 3
                 elif screen == "menu" and event.key in (SDLK_RETURN, SDLK_KP_ENTER):
                     if selected_menu_item == 0:
-                        screen = "hub"
-                        hub_x, hub_y = HUB_START
-                        hub_vx = hub_vy = 0.0
-                        hub_facing, hub_frame = "up", 0
-                        hub_animation_time = 0.0
-                        hub_elapsed = 0.0
-                        held_keys.clear()
+                        start_story()
                     elif selected_menu_item == 1:
                         running = False
                     else:
@@ -1764,6 +2049,12 @@ def main() -> None:
             elif (
                 event.type == SDL_MOUSEBUTTONDOWN
                 and event.button == SDL_BUTTON_LEFT
+                and screen == "story"
+            ):
+                advance_story()
+            elif (
+                event.type == SDL_MOUSEBUTTONDOWN
+                and event.button == SDL_BUTTON_LEFT
                 and screen in ("menu", "settings", "pause")
             ):
                 mouse_x, mouse_y = mouse_event_to_canvas_position(event.x, event.y)
@@ -1771,13 +2062,7 @@ def main() -> None:
                 if clicked_item is not None and screen == "menu":
                     selected_menu_item = clicked_item
                     if clicked_item == 0:
-                        screen = "hub"
-                        hub_x, hub_y = HUB_START
-                        hub_vx = hub_vy = 0.0
-                        hub_facing, hub_frame = "up", 0
-                        hub_animation_time = 0.0
-                        hub_elapsed = 0.0
-                        held_keys.clear()
+                        start_story()
                     elif clicked_item == 1:
                         running = False
                     else:
@@ -1802,6 +2087,10 @@ def main() -> None:
                         screen = "pause" if pause_menu_open else "menu"
             elif event.type == SDL_KEYUP and event.key in KEY_DIRECTIONS:
                 held_keys.discard(event.key)
+
+        if screen == "story":
+            story_scene_elapsed += delta_time
+            story_total_elapsed += delta_time
 
         if screen == "hub":
             hub_elapsed += delta_time
@@ -1868,6 +2157,11 @@ def main() -> None:
 
         if screen == "pause":
             draw_pause_overlay(menu_font, hint_font, selected_pause_item)
+        elif screen == "story":
+            draw_story(
+                menu_font, hint_font, sprite,
+                story_scene, story_scene_elapsed, story_total_elapsed, story_reveal_all,
+            )
         elif screen == "hub":
             draw_hub(
                 menu_font, hint_font, sprite, hub,
@@ -1883,10 +2177,26 @@ def main() -> None:
                 title_font, menu_font, hint_font, selected_menu_item, sprite
             )
         elif screen == "clear":
-            fill(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, (13, 11, 16, 175))
-            draw_centered_text(heading_font, "지하 저장고 탈출", 800, 490, (239, 209, 158))
-            draw_centered_text(menu_font, "5라운드를 모두 통과했습니다.", 800, 423, (232, 226, 213))
-            draw_centered_text(hint_font, "ENTER / ESC  TO MAIN MENU", 800, 366, (205, 188, 163))
+            fill(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, (10, 12, 20, 200))
+            fill(270, 285, 1060, 330, (15, 21, 33, 238))
+            draw_rectangle(270, 285, 1330, 615, 168, 140, 92, filled=False)
+            draw_rectangle(276, 291, 1324, 609, 58, 92, 102, filled=False)
+            draw_centered_text(heading_font, "지하 저장고 탈출", 800, 545, (239, 209, 158))
+            draw_centered_text(
+                menu_font,
+                "과거의 그림자들을 모두 피해, 마침내 첫 번째 봉인을 열었다.",
+                800, 464, (236, 228, 212),
+            )
+            draw_centered_text(
+                menu_font,
+                "희미한 기억의 조각이 시계 가방 속에서 은은하게 빛나기 시작한다...",
+                800, 408, (176, 218, 222),
+            )
+            draw_centered_text(
+                hint_font,
+                "5라운드 클리어     ·     ENTER  시간의 홀로     ·     ESC  메인 메뉴",
+                800, 332, (205, 188, 163),
+            )
         update_canvas()
 
     for font in (title_font, menu_font, heading_font, hint_font):
