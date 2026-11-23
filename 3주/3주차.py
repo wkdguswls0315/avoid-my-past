@@ -80,33 +80,75 @@ HUB_CENTER_X = SCREEN_WIDTH / 2
 HUB_CENTER_Y = SCREEN_HEIGHT / 2
 HUB_MAP = (
     "#########################",
-    "#####......###......#####",
-    "###...O...........O...###",
-    "##....S...........S....##",
+    "########...###...########",
+    "###...................###",
     "##.....................##",
-    "##...O.............O...##",
+    "##..O...............O..##",
+    "##..S...............S..##",
     "##.....................##",
+    "##....D...........M....##",
+    "##..S...............S..##",
+    "##..O...............O..##",
     "##.....................##",
-    "##...O.............O...##",
-    "##.....................##",
-    "##....S...........S....##",
-    "###...O...........O...###",
+    "###..O.............O..###",
     "#####...............#####",
     "#########################",
 )
 HUB_START_TILE = (12, 11)
-HUB_DOOR_TILE = (12, 1)
-HUB_DOOR_RADIUS = 105
+HUB_CELLAR_DOOR_TILE = (6, 1)
+HUB_MIRROR_DOOR_TILE = (12, 1)
+HUB_CLOCK_DOOR_TILE = (18, 1)
+HUB_DIARY_TILE = (6, 7)
+HUB_MIRROR_PROP_TILE = (18, 7)
+HUB_DOOR_RADIUS = 88
+HUB_PROP_RADIUS = 82
+HUB_CLOCK_RADIUS = 148
 HUB_SPEED = 210
+HUB_DOORS = (
+    ("cellar", "Ⅰ. 지하 저장고", HUB_CELLAR_DOOR_TILE, True),
+    ("mirror", "Ⅱ. 거울의 회랑", HUB_MIRROR_DOOR_TILE, False),
+    ("clock", "Ⅲ. 멈춘 시계탑", HUB_CLOCK_DOOR_TILE, False),
+)
 HUB_LAMP_TILES = (
-    (9, 2, 340),
-    (15, 2, 340),
-    (8, 5, 355),
-    (16, 5, 355),
-    (8, 8, 355),
-    (16, 8, 355),
-    (9, 11, 330),
-    (15, 11, 330),
+    (3, 2, 300),
+    (8, 2, 330),
+    (16, 2, 330),
+    (21, 2, 300),
+    (8, 5, 345),
+    (16, 5, 345),
+    (8, 8, 345),
+    (16, 8, 345),
+    (9, 11, 325),
+    (15, 11, 325),
+)
+MEMORY_ENTRIES = (
+    (
+        "cellar",
+        "제1장 · 지하 저장고  (도망치던 기억)",
+        (
+            "\"어두운 지하실에서도 나는 끝없이 뒤를 돌아보며 도망쳤다.",
+            "하지만 나를 쫓던 것은 괴물이 아니라, 실수투성이였던 어제의 나 자신이었다.\"",
+        ),
+        "아직 봉인된 페이지...  'Ⅰ. 지하 저장고'의 5라운드를 통과하면 첫 번째 기억이 떠오른다.",
+    ),
+    (
+        "mirror",
+        "제2장 · 거울의 회랑  (마주하는 기억)",
+        (
+            "\"거울 너머의 나와 처음으로 같은 걸음을 내디뎠다.",
+            "피해야 할 그림자가 아니라, 함께 나아가야 할 나의 조각이었다.\"",
+        ),
+        "거울 너머의 기억이 아직 흐릿하게 잠겨 있다...  (2번째 미니게임 · 준비 중)",
+    ),
+    (
+        "clock",
+        "제3장 · 멈춘 시계탑  (멈춰버린 시간)",
+        (
+            "\"멈춰 있던 시계 바늘이 다시 움직이기 시작했다.",
+            "이제는 이 기억의 저택을 벗어나, 내일로 돌아갈 시간이다.\"",
+        ),
+        "마지막 페이지는 찢어진 채 멈춰 있다...  (3번째 미니게임 · 준비 중)",
+    ),
 )
 PAUSE_ITEMS = (("설정", 430), ("종료", 310))
 PAUSE_ITEM_Y = tuple(y for _, y in PAUSE_ITEMS)
@@ -137,7 +179,7 @@ INTRO_SCENES = (
     (
         "Ⅳ. 시간의 홀",
         (
-            "거대한 시계가 놓인 홀 너머로, 차가운 지하 저장고의 문이 열려 있다.",
+            "거대한 시계가 놓인 홀 너머로, 잃어버린 기억의 문들이 나를 기다리고 있다.",
             "숨을 고르고 발을 내딛자. 나의 과거에서 벗어나기 위한 여정이 시작된다.",
         ),
     ),
@@ -170,7 +212,7 @@ PROP_SPRITES = {
     "B": (21, 19), "C": (22, 19), "J": (23, 19), "K": (21, 18),
     "S": (23, 18), "R": (16, 13),  # 석상, 무너진 돌
 }
-SOLID_TILES = "#O" + "".join(PROP_SPRITES)
+SOLID_TILES = "#O" + "".join(PROP_SPRITES) + "DM"
 LAMP_TILES = ((3, 11, 340), (8, 3, 340), (11, 8, 365),
               (14, 4, 340), (20, 8, 355), (21, 2, 335))
 PLAYER_START = (
@@ -181,10 +223,13 @@ HUB_START = (
     (HUB_START_TILE[0] + 0.5) * TILE_WIDTH,
     (len(HUB_MAP) - HUB_START_TILE[1] - 0.5) * TILE_HEIGHT,
 )
-HUB_SHADOW_DOOR = (
-    (HUB_DOOR_TILE[0] + 0.5) * TILE_WIDTH,
-    (len(HUB_MAP) - HUB_DOOR_TILE[1] - 1.15) * TILE_HEIGHT,
-)
+HUB_DOOR_TRIGGERS = {
+    room_id: (
+        (tile[0] + 0.5) * TILE_WIDTH,
+        (len(HUB_MAP) - tile[1] - 1.15) * TILE_HEIGHT,
+    )
+    for room_id, _, tile, _ in HUB_DOORS
+}
 CHARACTER_SCALE = 1.1
 PLAYER_RADIUS = 14
 PLAYER_SPEED = 205
@@ -693,50 +738,85 @@ def draw_hub_tile(column: int, row: int, tile: str) -> None:
                    color[0] - 5, color[1] - 4, color[2] - 2)
 
 
+def draw_hub_door_frame(column: int, accent: tuple[int, int, int]) -> tuple[float, float]:
+    door_x, door_y = tile_center(column, 1)
+    for pillar_col in (column - 1, column + 1):
+        px, py = tile_origin(pillar_col, 1)
+        fill(px + 6, py + 4, 52, TILE_HEIGHT - 4, (64, 64, 74))
+        fill(px + 10, py + 8, 44, TILE_HEIGHT - 12, (94, 92, 102))
+        fill(px + 8, py + 6, 48, 5, accent)
+        fill(px + 8, py + TILE_HEIGHT - 8, 48, 5, accent)
+        draw_circle(px + 32, py + 32, 6, *accent)
+    # 문 앞 석재 디딤판
+    fill(door_x - 54, door_y - 44, 108, 16, (86, 84, 94))
+    fill(door_x - 50, door_y - 42, 100, 4, accent)
+    return door_x, door_y
+
+
 def draw_hub_details() -> None:
     cx, cy = HUB_CENTER_X, HUB_CENTER_Y
 
     # 좌우 회랑 바닥의 얇은 황동 장식선
-    for side_col in (4, 20):
+    for side_col in (3, 21):
         sx, sy = tile_origin(side_col, 11)
-        line_x = sx + (54 if side_col == 4 else 8)
+        line_x = sx + (54 if side_col == 3 else 8)
         fill(line_x, sy + 12, 2, TILE_HEIGHT * 9 - 24, (118, 102, 78))
         for mark in range(9):
             fill(line_x - 2, sy + 32 + mark * TILE_HEIGHT, 6, 6, (158, 128, 84))
 
-    # 중앙 붉은 융단 (입구에서 시간의 문양을 거쳐 지하 저장고 문까지)
-    carpet_left = cx - 64
+    # 세 갈래 붉은 융단: 중앙에서 세 문(좌·중·우)으로 뻗어 나간다.
+    door1_x = tile_center(*HUB_CELLAR_DOOR_TILE)[0]
+    door3_x = tile_center(*HUB_CLOCK_DOOR_TILE)[0]
+    gallery_y = tile_center(12, 3)[1]
     carpet_bottom = tile_origin(12, 12)[1] + 16
     carpet_top = tile_origin(12, 2)[1] + TILE_HEIGHT - 4
+
+    # 1) 상단 가로 회랑 융단 (3개의 문을 연결)
+    fill(door1_x - 48, gallery_y - 38, (door3_x - door1_x) + 96, 76, (58, 28, 36))
+    fill(door1_x - 42, gallery_y - 31, (door3_x - door1_x) + 84, 62, (98, 38, 48))
+    fill(door1_x - 38, gallery_y - 27, (door3_x - door1_x) + 76, 2, (176, 136, 78))
+    fill(door1_x - 38, gallery_y + 25, (door3_x - door1_x) + 76, 2, (176, 136, 78))
+
+    # 2) 왼쪽·오른쪽 문으로 올라가는 세로 지선 융단
+    branch_bottom = gallery_y - 28
+    branch_height = carpet_top - branch_bottom
+    for bx in (door1_x, door3_x):
+        fill(bx - 48, branch_bottom, 96, branch_height, (58, 28, 36))
+        fill(bx - 40, branch_bottom + 4, 80, branch_height - 8, (98, 38, 48))
+        fill(bx - 36, branch_bottom + 6, 2, branch_height - 12, (176, 136, 78))
+        fill(bx + 34, branch_bottom + 6, 2, branch_height - 12, (176, 136, 78))
+
+    # 3) 중앙 메인 세로 융단 (출발 지점 → 중앙 시계 → 중앙 문)
+    carpet_left = cx - 58
     carpet_height = carpet_top - carpet_bottom
-    fill(carpet_left, carpet_bottom, 128, carpet_height, (58, 28, 36))
-    fill(carpet_left + 8, carpet_bottom + 6, 112, carpet_height - 12, (98, 38, 48))
-    for trim_x in (carpet_left + 12, carpet_left + 114):
+    fill(carpet_left, carpet_bottom, 116, carpet_height, (58, 28, 36))
+    fill(carpet_left + 8, carpet_bottom + 6, 100, carpet_height - 12, (98, 38, 48))
+    for trim_x in (carpet_left + 12, carpet_left + 102):
         fill(trim_x, carpet_bottom + 8, 2, carpet_height - 16, (176, 136, 78))
     for index in range(11):
         dy = carpet_bottom + 36 + index * TILE_HEIGHT
         if abs(dy - cy) < 135:
             continue
-        draw_line(cx - 18, dy, cx, dy + 16, 162, 116, 72)
-        draw_line(cx, dy + 16, cx + 18, dy, 162, 116, 72)
-        draw_line(cx + 18, dy, cx, dy - 16, 162, 116, 72)
-        draw_line(cx, dy - 16, cx - 18, dy, 162, 116, 72)
+        draw_line(cx - 16, dy, cx, dy + 14, 162, 116, 72)
+        draw_line(cx, dy + 14, cx + 16, dy, 162, 116, 72)
+        draw_line(cx + 16, dy, cx, dy - 14, 162, 116, 72)
+        draw_line(cx, dy - 14, cx - 16, dy, 162, 116, 72)
 
-    # 로비 정중앙의 거대한 바닥 시계 문양 (시간의 홀 상징)
-    draw_circle(cx, cy, 132, 34, 36, 46, filled=True)
-    draw_circle(cx, cy, 128, 148, 120, 78)
+    # 로비 정중앙의 거대한 기억 시계 (시간의 홀 상징 + 기억 보석 3슬롯)
+    draw_circle(cx, cy, 134, 34, 36, 46, filled=True)
+    draw_circle(cx, cy, 130, 148, 120, 78)
     draw_circle(cx, cy, 122, 46, 49, 62, filled=True)
     draw_circle(cx, cy, 116, 182, 146, 92)
-    draw_circle(cx, cy, 106, 26, 34, 48, filled=True)
-    draw_circle(cx, cy, 105, 92, 134, 142)
+    draw_circle(cx, cy, 104, 26, 34, 48, filled=True)
+    draw_circle(cx, cy, 103, 92, 134, 142)
     draw_circle(cx, cy, 66, 62, 82, 94)
     draw_circle(cx, cy, 34, 42, 54, 68, filled=True)
     draw_circle(cx, cy, 34, 148, 122, 82)
     for hour in range(12):
         angle = pi / 2 - hour * (pi / 6)
         major = hour % 3 == 0
-        inner_r = 80 if major else 89
-        outer_r = 101
+        inner_r = 79 if major else 88
+        outer_r = 100
         color = (212, 174, 110) if major else (138, 124, 96)
         draw_line(
             cx + cos(angle) * inner_r, cy + sin(angle) * inner_r,
@@ -751,34 +831,80 @@ def draw_hub_details() -> None:
                 *color,
             )
 
-    # 위쪽 중앙의 웅장한 '지하 저장고' 석조 아치 문과 내려가는 계단
-    door_x, door_y = tile_center(*HUB_DOOR_TILE)
-    # 양옆 문기둥 석조 장식 (col 11, col 13)
-    for pillar_col in (11, 13):
-        px, py = tile_origin(pillar_col, 1)
-        fill(px + 6, py + 4, 52, TILE_HEIGHT - 4, (74, 72, 80))
-        fill(px + 10, py + 8, 44, TILE_HEIGHT - 12, (104, 100, 108))
-        fill(px + 8, py + 6, 48, 5, (176, 142, 88))
-        fill(px + 8, py + TILE_HEIGHT - 8, 48, 5, (176, 142, 88))
-        draw_circle(px + 32, py + 32, 6, 198, 158, 96)
-
-    # 문 앞 석재 디딤판
-    fill(door_x - 54, door_y - 44, 108, 16, (92, 88, 96))
-    fill(door_x - 50, door_y - 42, 100, 4, (158, 136, 98))
-
-    # 지하로 내려가는 어두운 돌계단과 반쯤 열린 철문
-    fill(door_x - 34, door_y - 30, 68, 64, (24, 28, 36))
+    # 1번 문 (좌측): 'Ⅰ. 지하 저장고' — 돌계단과 반쯤 열린 철문
+    d1x, d1y = draw_hub_door_frame(HUB_CELLAR_DOOR_TILE[0], (176, 142, 88))
+    fill(d1x - 34, d1y - 30, 68, 64, (24, 28, 36))
     for step in range(5):
-        sy = door_y - 26 + step * 11
+        sy = d1y - 26 + step * 11
         shade = 74 - step * 9
-        fill(door_x - 28, sy, 56, 9, (shade, shade + 2, shade + 10))
-        fill(door_x - 28, sy, 56, 2, (34, 38, 48))
-    # 아치 상단 석조 인방과 철창 장식
-    fill(door_x - 42, door_y + 26, 84, 10, (132, 122, 114))
-    fill(door_x - 42, door_y + 24, 84, 3, (192, 158, 102))
+        fill(d1x - 28, sy, 56, 9, (shade, shade + 2, shade + 10))
+        fill(d1x - 28, sy, 56, 2, (34, 38, 48))
+    fill(d1x - 42, d1y + 26, 84, 10, (132, 122, 114))
+    fill(d1x - 42, d1y + 24, 84, 3, (192, 158, 102))
     for bar_x in (-30, -22, 20, 28):
-        fill(door_x + bar_x, door_y - 28, 3, 54, (112, 118, 128))
-    draw_rectangle(door_x - 34, door_y - 30, door_x + 34, door_y + 26, 174, 144, 96)
+        fill(d1x + bar_x, d1y - 28, 3, 54, (112, 118, 128))
+    draw_rectangle(d1x - 34, d1y - 30, d1x + 34, d1y + 26, 174, 144, 96)
+
+    # 2번 문 (중앙): 'Ⅱ. 거울의 회랑' — 은빛 거울 문과 봉인 띠
+    d2x, d2y = draw_hub_door_frame(HUB_MIRROR_DOOR_TILE[0], (158, 134, 186))
+    fill(d2x - 34, d2y - 30, 68, 64, (36, 34, 54))
+    fill(d2x - 26, d2y - 24, 52, 50, (74, 68, 108))
+    fill(d2x - 22, d2y - 20, 44, 42, (108, 102, 148))
+    draw_line(d2x - 16, d2y - 12, d2x + 12, d2y + 16, 182, 178, 224)
+    draw_line(d2x - 6, d2y - 16, d2x + 16, d2y + 6, 162, 156, 206)
+    fill(d2x - 42, d2y + 26, 84, 10, (118, 114, 136))
+    # 대각선 봉인 사슬과 자물쇠
+    draw_line(d2x - 32, d2y - 24, d2x + 32, d2y + 22, 176, 98, 108)
+    draw_line(d2x - 32, d2y + 22, d2x + 32, d2y - 24, 176, 98, 108)
+    draw_circle(d2x, d2y, 9, 44, 34, 46, filled=True)
+    draw_circle(d2x, d2y, 9, 204, 144, 126)
+    draw_rectangle(d2x - 34, d2y - 30, d2x + 34, d2y + 26, 168, 148, 198)
+
+    # 3번 문 (우측): 'Ⅲ. 멈춘 시계탑' — 황동 톱니 문과 봉인 띠
+    d3x, d3y = draw_hub_door_frame(HUB_CLOCK_DOOR_TILE[0], (176, 146, 92))
+    fill(d3x - 34, d3y - 30, 68, 64, (36, 32, 30))
+    fill(d3x - 26, d3y - 24, 52, 50, (62, 52, 42))
+    draw_circle(d3x, d3y, 17, 176, 142, 82)
+    draw_circle(d3x, d3y, 9, 136, 106, 62)
+    for spoke in range(8):
+        ang = spoke * pi / 4
+        draw_line(
+            d3x + cos(ang) * 9, d3y + sin(ang) * 9,
+            d3x + cos(ang) * 21, d3y + sin(ang) * 21,
+            188, 154, 92,
+        )
+    fill(d3x - 42, d3y + 26, 84, 10, (128, 114, 96))
+    draw_line(d3x - 32, d3y - 24, d3x + 32, d3y + 22, 176, 98, 108)
+    draw_line(d3x - 32, d3y + 22, d3x + 32, d3y - 24, 176, 98, 108)
+    draw_circle(d3x, d3y, 8, 44, 34, 46, filled=True)
+    draw_circle(d3x, d3y, 8, 212, 164, 98)
+    draw_rectangle(d3x - 34, d3y - 30, d3x + 34, d3y + 26, 182, 150, 94)
+
+    # 왼쪽 회랑 오브젝트: '기억의 일기장' 나무 독서대와 펼쳐진 책
+    dx, dy = tile_center(*HUB_DIARY_TILE)
+    fill(dx - 28, dy - 24, 56, 48, (46, 36, 32))
+    fill(dx - 24, dy - 20, 48, 40, (92, 62, 42))
+    draw_rectangle(dx - 24, dy - 20, dx + 24, dy + 20, 158, 122, 74)
+    # 펼쳐진 양피지 일기장
+    fill(dx - 17, dy - 10, 16, 22, (226, 212, 182))
+    fill(dx + 1, dy - 10, 16, 22, (216, 200, 168))
+    fill(dx - 1, dy - 11, 2, 24, (118, 86, 56))
+    for line_y in (-5, 0, 5):
+        fill(dx - 14, dy + line_y, 10, 2, (124, 104, 82))
+        fill(dx + 4, dy + line_y, 10, 2, (124, 104, 82))
+    # 붉은 책갈피와 작은 촛불
+    fill(dx + 6, dy - 15, 3, 7, (176, 56, 62))
+    fill(dx - 21, dy + 10, 6, 8, (232, 224, 206))
+
+    # 오른쪽 회랑 오브젝트: '낡은 거울' 석재 받침과 황동 전신 거울
+    mx, my = tile_center(*HUB_MIRROR_PROP_TILE)
+    fill(mx - 26, my - 24, 52, 48, (44, 44, 54))
+    fill(mx - 22, my - 20, 44, 42, (132, 112, 82))
+    fill(mx - 17, my - 15, 34, 32, (88, 108, 134))
+    fill(mx - 14, my - 12, 28, 26, (118, 144, 170))
+    draw_line(mx - 10, my - 8, mx + 10, my + 10, 206, 224, 238)
+    draw_line(mx - 2, my - 10, mx + 11, my + 2, 178, 202, 222)
+    draw_rectangle(mx - 22, my - 20, mx + 22, my + 22, 186, 154, 96)
 
     # 하단 출발 지점 석재 문양
     sx, sy = HUB_START
@@ -791,13 +917,20 @@ class HubHall(Cellar):
     def __init__(self, props: Image) -> None:
         self.props = props
         self.lamps = [Lamp(*tile_center(column, row), reach) for column, row, reach in HUB_LAMP_TILES]
-        gate_x, gate_y = tile_center(*HUB_DOOR_TILE)
-        self.portal_lamp = Lamp(gate_x, gate_y - 36, 285)
-        self.clock_lamp = Lamp(HUB_CENTER_X, HUB_CENTER_Y, 220)
+        d1x, d1y = tile_center(*HUB_CELLAR_DOOR_TILE)
+        d2x, d2y = tile_center(*HUB_MIRROR_DOOR_TILE)
+        d3x, d3y = tile_center(*HUB_CLOCK_DOOR_TILE)
+        self.door_lights = (
+            (Lamp(d1x, d1y - 36, 265), (92, 172, 184)),
+            (Lamp(d2x, d2y - 36, 230), (118, 92, 158)),
+            (Lamp(d3x, d3y - 36, 230), (146, 118, 72)),
+        )
+        self.clock_lamp = Lamp(HUB_CENTER_X, HUB_CENTER_Y, 230)
         self.walls = []
+        shadow_tiles = "#O" + "".join(PROP_SPRITES)
         for row, tiles in enumerate(HUB_MAP):
             for column, tile in enumerate(tiles):
-                if tile in SOLID_TILES:
+                if tile in shadow_tiles:
                     x, y = tile_origin(column, row)
                     self.walls.append((x, y, x + TILE_WIDTH, y + TILE_HEIGHT))
         self.floor = self.build_texture(self.draw_floor, pico2d.SDL_BLENDMODE_NONE)
@@ -822,9 +955,10 @@ class HubHall(Cellar):
         p.SDL_RenderClear(renderer)
         p.SDL_SetRenderDrawBlendMode(renderer, p.SDL_BLENDMODE_ADD)
         for lamp in self.lamps:
-            self.draw_lamp_light(lamp, (158, 128, 86))
-        self.draw_lamp_light(self.portal_lamp, (88, 166, 178))
-        self.draw_lamp_light(self.clock_lamp, (78, 92, 108))
+            self.draw_lamp_light(lamp, (154, 124, 84))
+        for lamp, rgb in self.door_lights:
+            self.draw_lamp_light(lamp, rgb)
+        self.draw_lamp_light(self.clock_lamp, (82, 96, 114))
 
 
 def draw_player(sprite: Image, x: float, y: float, facing: str, frame: int) -> None:
@@ -1899,10 +2033,50 @@ def draw_menu_footer(font: Font, text: str) -> None:
     draw_centered_text(font, text, (left + right) / 2, 85, (115, 145, 153))
 
 
-def draw_hub_clock_hands(elapsed: float) -> None:
+def hub_interaction_target(player_x: float, player_y: float) -> str | None:
+    """Return the closest interactive door or story object within range in the lobby."""
+    for room_id, _, _, _ in HUB_DOORS:
+        dx, dy = HUB_DOOR_TRIGGERS[room_id]
+        if hypot(player_x - dx, player_y - dy) <= HUB_DOOR_RADIUS:
+            return room_id
+    diary_x, diary_y = tile_center(*HUB_DIARY_TILE)
+    if hypot(player_x - diary_x, player_y - diary_y) <= HUB_PROP_RADIUS:
+        return "diary"
+    mirror_x, mirror_y = tile_center(*HUB_MIRROR_PROP_TILE)
+    if hypot(player_x - mirror_x, player_y - mirror_y) <= HUB_PROP_RADIUS:
+        return "mirror_prop"
+    if hypot(player_x - HUB_CENTER_X, player_y - HUB_CENTER_Y) <= 105:
+        return "clock_center"
+    return None
+
+
+def draw_hub_clock_hands(elapsed: float, cleared_rooms: set[str]) -> None:
     cx, cy = HUB_CENTER_X, HUB_CENTER_Y
     pulse = 0.5 + 0.5 * sin(elapsed * 2.2)
-    draw_circle(cx, cy, 24, 96, 198, 206, int(18 + 14 * pulse), filled=True)
+    lit_count = len(cleared_rooms)
+    core_color = (242, 206, 122) if lit_count >= 3 else (96, 198, 206)
+    draw_circle(cx, cy, 24 + lit_count * 4, *core_color, int(20 + lit_count * 10 + 14 * pulse), filled=True)
+
+    # 중앙 시계 테두리의 기억 보석 슬롯 3개 (10시: 지하 저장고, 12시: 거울의 회랑, 2시: 멈춘 시계탑)
+    gem_slots = (
+        ("cellar", pi * 5 / 6, (108, 226, 224)),
+        ("mirror", pi / 2, (206, 152, 252)),
+        ("clock", pi / 6, (246, 204, 112)),
+    )
+    for room_id, angle, gem_color in gem_slots:
+        gx = cx + cos(angle) * 119
+        gy = cy + sin(angle) * 119
+        unlocked = room_id in cleared_rooms
+        draw_circle(gx, gy, 13, 28, 32, 42, filled=True)
+        draw_circle(gx, gy, 13, 188, 154, 96)
+        if unlocked:
+            draw_circle(gx, gy, 18, *gem_color, int(36 + 24 * pulse), filled=True)
+            draw_circle(gx, gy, 9, *gem_color, filled=True)
+            draw_circle(gx, gy, 4, 255, 250, 234, filled=True)
+            draw_line(gx, gy, cx, cy, *gem_color, int(42 + 26 * pulse))
+        else:
+            draw_circle(gx, gy, 8, 20, 24, 34, filled=True)
+            draw_circle(gx, gy, 8, 76, 86, 102)
 
     # 시침, 분침, 초침이 천천히 돌아가며 '시간의 홀' 분위기를 살린다.
     hands = (
@@ -1925,25 +2099,61 @@ def draw_hub_clock_hands(elapsed: float) -> None:
     draw_circle(cx, cy, 3, 128, 224, 230, filled=True)
 
 
-def draw_hub_gate_effects(elapsed: float, near_door: bool) -> None:
-    door_x, door_y = tile_center(*HUB_DOOR_TILE)
-    pulse = 0.5 + 0.5 * sin(elapsed * 3.4)
-    glow_alpha = int((46 if near_door else 26) + 18 * pulse)
-    draw_circle(door_x, door_y - 4, 34, 102, 214, 218, glow_alpha, filled=True)
-    draw_circle(door_x, door_y - 4, 18, 190, 242, 240, glow_alpha + 15, filled=True)
-    if near_door:
-        fill(door_x - 50, door_y - 43, 100, 5, (124, 228, 216, 170))
+def draw_hub_gate_effects(
+    elapsed: float,
+    target: str | None,
+    cleared_rooms: set[str],
+) -> None:
+    pulse = 0.5 + 0.5 * sin(elapsed * 3.2)
+
+    # 1번 문 (지하 저장고): 미클리어 시 청록빛, 클리어 후 황금빛 완료 오라
+    d1x, d1y = tile_center(*HUB_CELLAR_DOOR_TILE)
+    cellar_cleared = "cellar" in cleared_rooms
+    near_cellar = target == "cellar"
+    c1 = (246, 206, 114) if cellar_cleared else (102, 214, 218)
+    c1_inner = (255, 240, 196) if cellar_cleared else (190, 242, 240)
+    a1 = int((48 if near_cellar else 28) + 18 * pulse)
+    draw_circle(d1x, d1y - 4, 34, *c1, a1, filled=True)
+    draw_circle(d1x, d1y - 4, 18, *c1_inner, a1 + 15, filled=True)
+    if near_cellar:
+        fill(d1x - 50, d1y - 43, 100, 5, (*c1, 175))
     for mote in range(5):
         rise = (elapsed * (16 + mote * 3) + mote * 13) % 52
-        mx = door_x + 22 * sin(elapsed * 1.8 + mote * 1.7)
-        my = door_y - 26 + rise
-        alpha = int((145 if near_door else 95) * sin(pi * rise / 52))
-        fill(mx, my, 3, 3, (156, 232, 232, alpha))
+        mx = d1x + 22 * sin(elapsed * 1.8 + mote * 1.7)
+        my = d1y - 26 + rise
+        alpha = int((145 if near_cellar else 95) * sin(pi * rise / 52))
+        fill(mx, my, 3, 3, (*c1_inner, alpha))
+
+    # 2번 문 (거울의 회랑) & 3번 문 (멈춘 시계탑): 봉인된 은은한 신비 오라
+    for room_id, tile, rgb in (
+        ("mirror", HUB_MIRROR_DOOR_TILE, (186, 146, 232)),
+        ("clock", HUB_CLOCK_DOOR_TILE, (224, 176, 98)),
+    ):
+        dx, dy = tile_center(*tile)
+        near = target == room_id
+        alpha = int((34 if near else 18) + 10 * pulse)
+        draw_circle(dx, dy - 4, 28, *rgb, alpha, filled=True)
+        if near:
+            fill(dx - 50, dy - 43, 100, 4, (*rgb, 150))
+
+    # 왼쪽 회랑 일기장 옆 작은 촛불 깜박임
+    diary_x, diary_y = tile_center(*HUB_DIARY_TILE)
+    candle_glow = int(34 + 14 * sin(elapsed * 6.5))
+    draw_circle(diary_x - 18, diary_y + 18, 12, 255, 174, 72, candle_glow, filled=True)
+    draw_circle(diary_x - 18, diary_y + 18, 4, 255, 240, 174, 170 + candle_glow // 2, filled=True)
+    if target == "diary":
+        draw_circle(diary_x, diary_y, 38, 238, 206, 134, int(90 + 40 * pulse))
+
+    # 오른쪽 회랑 낡은 거울 반짝임
+    mirror_x, mirror_y = tile_center(*HUB_MIRROR_PROP_TILE)
+    draw_circle(mirror_x, mirror_y + 2, 22, 162, 208, 234, int(18 + 14 * pulse), filled=True)
+    if target == "mirror_prop":
+        draw_circle(mirror_x, mirror_y, 38, 162, 214, 236, int(90 + 40 * pulse))
 
 
 def draw_hub(
-    menu_font: Font,
-    hint_font: Font,
+    menu_font: Font | CrispFont,
+    hint_font: Font | CrispFont,
     sprite: Image,
     hub: HubHall,
     player_x: float,
@@ -1951,64 +2161,180 @@ def draw_hub(
     facing: str,
     frame: int,
     elapsed: float,
+    cleared_rooms: set[str],
+    whisper: str,
+    whisper_until: float,
 ) -> None:
-    door_x, door_y = HUB_SHADOW_DOOR
-    near_door = hypot(player_x - door_x, player_y - door_y) <= HUB_DOOR_RADIUS
+    target = hub_interaction_target(player_x, player_y)
 
     hub.draw_background()
-    draw_hub_clock_hands(elapsed)
+    draw_hub_clock_hands(elapsed, cleared_rooms)
     hub.draw_shadows(player_x, player_y)
     draw_player(sprite, player_x, player_y, facing, frame)
     hub.apply_lighting()
+    # 기억을 복원할수록 홀 전체가 은은하고 따뜻하게 밝아진다.
+    if cleared_rooms:
+        warmth = min(30, len(cleared_rooms) * 10)
+        fill(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, (255, 222, 164, warmth))
     hub.draw_lamp_glints(elapsed)
-    draw_hub_gate_effects(elapsed, near_door)
+    draw_hub_gate_effects(elapsed, target, cleared_rooms)
 
-    # 상단 좌측: 로비 이름 배지
-    fill(18, 846, 290, 42, (20, 22, 30, 232))
-    draw_rectangle(18, 846, 308, 888, 138, 114, 78, filled=False)
-    draw_centered_text(menu_font, "시간의 홀", 163, 867, (239, 209, 158))
+    # 상단 좌측: 로비 이름 + 기억 조각 수집 진행도
+    fill(18, 844, 248, 46, (20, 22, 30, 236))
+    draw_rectangle(18, 844, 266, 890, 146, 122, 82, filled=False)
+    draw_centered_text(hint_font, f"시간의 홀   ·   기억 {len(cleared_rooms)}/3", 142, 867, (239, 209, 158))
 
-    # 상단 중앙: '지하 저장고' 입구 명판
-    plaque_border = (126, 222, 214) if near_door else (154, 128, 86)
-    plaque_text = (252, 232, 186) if near_door else (228, 204, 162)
-    fill(HUB_CENTER_X - 132, 844, 264, 46, (18, 22, 30, 238))
-    draw_rectangle(HUB_CENTER_X - 132, 844, HUB_CENTER_X + 132, 890, *plaque_border, filled=False)
-    draw_centered_text(menu_font, "지하 저장고", HUB_CENTER_X, 867, plaque_text)
+    # 상단 3개의 방 명판 (좌: 지하 저장고, 중: 거울의 회랑, 우: 멈춘 시계탑)
+    for room_id, title, tile, playable in HUB_DOORS:
+        gx = tile_center(*tile)[0]
+        is_target = target == room_id
+        is_cleared = room_id in cleared_rooms
+        if is_cleared:
+            border = (242, 206, 118)
+            text_color = (252, 232, 174)
+            label = f"{title} ★"
+        elif playable:
+            border = (126, 222, 214) if is_target else (154, 128, 86)
+            text_color = (252, 232, 186) if is_target else (228, 204, 162)
+            label = title
+        else:
+            border = (176, 142, 198) if is_target else (94, 94, 112)
+            text_color = (214, 198, 228) if is_target else (146, 150, 164)
+            label = f"{title} [봉인]"
+        fill(gx - 118, 844, 236, 46, (18, 22, 30, 238))
+        draw_rectangle(gx - 118, 844, gx + 118, 890, *border, filled=False)
+        draw_centered_text(hint_font, label, gx, 867, text_color)
 
     # 상단 우측: 메뉴 복귀 안내
     fill(1372, 848, 210, 38, (20, 22, 30, 225))
     draw_rectangle(1372, 848, 1582, 886, 86, 108, 118, filled=False)
     draw_centered_text(hint_font, "ESC  메인 메뉴", 1477, 867, (176, 198, 204))
 
-    # 문 근처 접근 시 입장 안내
-    if near_door:
-        gate_x, gate_y = tile_center(*HUB_DOOR_TILE)
-        fill(gate_x - 62, gate_y - 118, 124, 28, (18, 26, 34, 235))
-        draw_rectangle(gate_x - 62, gate_y - 118, gate_x + 62, gate_y - 90, 126, 222, 214, filled=False)
-        draw_centered_text(hint_font, "ENTER 입장", gate_x, gate_y - 104, (186, 240, 234))
+    # 좌·우 상호작용 오브젝트 이름표 (가까울 때 더 밝게)
+    diary_x, diary_y = tile_center(*HUB_DIARY_TILE)
+    draw_centered_text(
+        hint_font, "기억의 일기장", diary_x, diary_y - 36,
+        (246, 222, 162) if target == "diary" else (164, 154, 134),
+    )
+    mirror_x, mirror_y = tile_center(*HUB_MIRROR_PROP_TILE)
+    draw_centered_text(
+        hint_font, "낡은 거울", mirror_x, mirror_y - 36,
+        (194, 232, 244) if target == "mirror_prop" else (144, 162, 176),
+    )
 
-        fill(HUB_CENTER_X - 280, 12, 560, 44, (18, 24, 32, 238))
-        draw_rectangle(HUB_CENTER_X - 280, 12, HUB_CENTER_X + 280, 56, 136, 214, 208, filled=False)
-        draw_centered_text(menu_font, "ENTER 키를 눌러 지하 저장고 입장", HUB_CENTER_X, 34, (239, 216, 168))
+    # 대상 근처 플로팅 ENTER 배지 & 하단 안내 문구
+    bottom_prompt: str | None = None
+    badge_pos: tuple[float, float, str, tuple[int, int, int]] | None = None
+    if target == "cellar":
+        gx, gy = tile_center(*HUB_CELLAR_DOOR_TILE)
+        badge_pos = (gx, gy - 104, "ENTER 입장", (126, 222, 214))
+        bottom_prompt = "ENTER 키를 눌러 'Ⅰ. 지하 저장고' 입장"
+    elif target == "mirror":
+        gx, gy = tile_center(*HUB_MIRROR_DOOR_TILE)
+        badge_pos = (gx, gy - 104, "ENTER 조사", (186, 148, 226))
+        bottom_prompt = "ENTER 키를 눌러 봉인된 'Ⅱ. 거울의 회랑' 살펴보기"
+    elif target == "clock":
+        gx, gy = tile_center(*HUB_CLOCK_DOOR_TILE)
+        badge_pos = (gx, gy - 104, "ENTER 조사", (222, 182, 108))
+        bottom_prompt = "ENTER 키를 눌러 봉인된 'Ⅲ. 멈춘 시계탑' 살펴보기"
+    elif target == "diary":
+        badge_pos = (diary_x, diary_y + 42, "ENTER 읽기", (238, 206, 134))
+        bottom_prompt = "ENTER 키를 눌러 '기억의 일기장' 펼치기"
+    elif target == "mirror_prop":
+        badge_pos = (mirror_x, mirror_y + 42, "ENTER 들여다보기", (164, 218, 238))
+        bottom_prompt = "ENTER 키를 눌러 '낡은 거울' 들여다보기"
+    elif target == "clock_center":
+        badge_pos = (HUB_CENTER_X, HUB_CENTER_Y + 148, "ENTER 확인", (238, 206, 134))
+        bottom_prompt = "ENTER 키를 눌러 중앙의 '기억 시계' 확인하기"
+
+    if badge_pos is not None:
+        bx, by, btext, bcolor = badge_pos
+        bw = 148 if len(btext) > 8 else 124
+        fill(bx - bw / 2, by - 14, bw, 28, (18, 26, 34, 236))
+        draw_rectangle(bx - bw / 2, by - 14, bx + bw / 2, by + 14, *bcolor, filled=False)
+        draw_centered_text(hint_font, btext, bx, by, (242, 240, 228))
+
+    # 오브젝트 조사/봉인 대사 또는 첫 입장 독백
+    active_whisper = ""
+    if whisper and elapsed < whisper_until:
+        active_whisper = whisper
+    elif elapsed < 5.8 and target is None:
+        if "cellar" in cleared_rooms:
+            active_whisper = "\"첫 번째 기억 보석이 빛나고 있어... 기억의 일기장을 펼쳐볼까.\""
+        else:
+            active_whisper = "\"중앙 시계의 보석이 모두 비어 있다... 먼저 왼쪽 'Ⅰ. 지하 저장고'부터 확인해 보자.\""
+
+    if active_whisper:
+        fill(HUB_CENTER_X - 455, 62, 910, 44, (16, 20, 30, 236))
+        draw_rectangle(
+            HUB_CENTER_X - 455, 62, HUB_CENTER_X + 455, 106,
+            168, 142, 94, filled=False,
+        )
+        draw_centered_text(hint_font, active_whisper, HUB_CENTER_X, 84, (242, 226, 192))
+
+    if bottom_prompt:
+        fill(HUB_CENTER_X - 310, 12, 620, 42, (18, 24, 32, 238))
+        draw_rectangle(HUB_CENTER_X - 310, 12, HUB_CENTER_X + 310, 54, 136, 214, 208, filled=False)
+        draw_centered_text(hint_font, bottom_prompt, HUB_CENTER_X, 33, (239, 218, 172))
     else:
-        if elapsed < 5.8:
-            fill(HUB_CENTER_X - 430, 62, 860, 44, (16, 20, 30, 232))
-            draw_rectangle(
-                HUB_CENTER_X - 430, 62, HUB_CENTER_X + 430, 106,
-                164, 138, 92, filled=False,
-            )
-            draw_centered_text(
-                hint_font,
-                "\"등 뒤의 시계가 멈추지 않아... 먼저 위쪽 '지하 저장고'로 내려가 열쇠를 찾아보자.\"",
-                HUB_CENTER_X, 84, (240, 224, 188),
-            )
-        fill(HUB_CENTER_X - 310, 14, 620, 36, (18, 22, 30, 220))
-        draw_rectangle(HUB_CENTER_X - 310, 14, HUB_CENTER_X + 310, 50, 72, 92, 102, filled=False)
+        fill(HUB_CENTER_X - 360, 14, 720, 36, (18, 22, 30, 224))
+        draw_rectangle(HUB_CENTER_X - 360, 14, HUB_CENTER_X + 360, 50, 72, 92, 102, filled=False)
         draw_centered_text(
             hint_font,
-            "방향키 / WASD 이동     ·     위쪽 '지하 저장고' 입구로 이동하세요",
+            "방향키 / WASD 이동   ·   세 개의 문과 일기장·거울 앞에서 ENTER로 상호작용",
             HUB_CENTER_X, 32, (184, 196, 202),
         )
+
+
+def draw_diary_overlay(
+    heading_font: Font | CrispFont,
+    menu_font: Font | CrispFont,
+    hint_font: Font | CrispFont,
+    cleared_rooms: set[str],
+) -> None:
+    fill(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, (8, 10, 16, 210))
+    left, bottom, width, height = 210, 110, 1180, 680
+    right, top = left + width, bottom + height
+    fill(left, bottom, width, height, (22, 20, 28, 246))
+    draw_rectangle(left, bottom, right, top, 178, 146, 94, filled=False)
+    draw_rectangle(left + 8, bottom + 8, right - 8, top - 8, 76, 68, 56, filled=False)
+
+    draw_centered_text(heading_font, "기억의 일기장", HUB_CENTER_X, top - 62, (242, 216, 162))
+    draw_centered_text(
+        hint_font,
+        f"복원된 기억 조각   {len(cleared_rooms)} / {len(MEMORY_ENTRIES)}",
+        HUB_CENTER_X, top - 108, (142, 208, 210),
+    )
+    fill(left + 60, top - 128, width - 120, 2, (98, 86, 68))
+
+    card_top = top - 150
+    card_h = 138
+    card_gap = 20
+    for index, (room_id, title, lines, locked_text) in enumerate(MEMORY_ENTRIES):
+        cy_top = card_top - index * (card_h + card_gap)
+        cy_bottom = cy_top - card_h
+        unlocked = room_id in cleared_rooms
+        bg = (30, 32, 44, 240) if unlocked else (24, 24, 32, 225)
+        border = (196, 164, 102) if unlocked else (72, 74, 88)
+        fill(left + 52, cy_bottom, width - 104, card_h, bg)
+        draw_rectangle(left + 52, cy_bottom, right - 52, cy_top, *border, filled=False)
+
+        badge_text = "★ 기억 복원됨" if unlocked else "봉인됨"
+        badge_color = (128, 232, 198) if unlocked else (136, 140, 154)
+        menu_font.draw(left + 78, cy_top - 34, title, (242, 218, 166) if unlocked else (154, 156, 170))
+        draw_centered_text(hint_font, badge_text, right - 124, cy_top - 34, badge_color)
+
+        if unlocked:
+            hint_font.draw(left + 78, cy_top - 78, lines[0], (232, 226, 214))
+            hint_font.draw(left + 78, cy_top - 108, lines[1], (202, 216, 224))
+        else:
+            hint_font.draw(left + 78, cy_top - 90, locked_text, (132, 138, 152))
+
+    draw_centered_text(
+        hint_font,
+        "ENTER / SPACE / ESC / 클릭   일기장 덮기",
+        HUB_CENTER_X, bottom + 34, (176, 166, 146),
+    )
 
 
 def draw_story_sprite(
@@ -2402,6 +2728,9 @@ def main() -> None:
     hub_facing, hub_frame = "up", 0
     hub_animation_time = 0.0
     hub_elapsed = 0.0
+    hub_whisper = ""
+    hub_whisper_until = 0.0
+    cleared_rooms: set[str] = set()
     last_hub_frame = 0
     last_game_frame = 0
     ghost_mote_timer = 0.0
@@ -2420,12 +2749,15 @@ def main() -> None:
     def enter_hub() -> None:
         nonlocal screen, hub_x, hub_y, hub_vx, hub_vy
         nonlocal hub_facing, hub_frame, hub_animation_time, hub_elapsed, last_hub_frame
+        nonlocal hub_whisper, hub_whisper_until
         screen = "hub"
         hub_x, hub_y = HUB_START
         hub_vx = hub_vy = 0.0
         hub_facing, hub_frame = "up", 0
         hub_animation_time = 0.0
         hub_elapsed = 0.0
+        hub_whisper = ""
+        hub_whisper_until = 0.0
         last_hub_frame = 0
         effects.clear()
         sounds.set_paused_duck(False)
@@ -2514,6 +2846,9 @@ def main() -> None:
                         sounds.play("ui_move")
                         screen = "menu"
                         sounds.play_bgm("hub")
+                    elif screen == "diary":
+                        sounds.play("ui_move")
+                        screen = "hub"
                     elif screen == "story":
                         sounds.play("ui_move")
                         enter_hub()
@@ -2523,6 +2858,11 @@ def main() -> None:
                         held_keys.clear()
                     else:
                         running = False
+                elif screen == "diary" and event.key in (
+                    SDLK_RETURN, SDLK_KP_ENTER, SDLK_SPACE
+                ):
+                    sounds.play("ui_move")
+                    screen = "hub"
                 elif screen == "story" and event.key in (
                     SDLK_RETURN, SDLK_KP_ENTER, SDLK_SPACE
                 ):
@@ -2531,8 +2871,8 @@ def main() -> None:
                     sounds.play("ui_confirm")
                     enter_hub()
                 elif screen == "hub" and event.key in (SDLK_RETURN, SDLK_KP_ENTER):
-                    door_x, door_y = HUB_SHADOW_DOOR
-                    if hypot(hub_x - door_x, hub_y - door_y) <= HUB_DOOR_RADIUS:
+                    target = hub_interaction_target(hub_x, hub_y)
+                    if target == "cellar":
                         sounds.play("ui_confirm")
                         screen = "game"
                         run.reset("열쇠를 찾아 북동쪽 철문으로 가세요.")
@@ -2541,6 +2881,34 @@ def main() -> None:
                         sounds.set_paused_duck(False)
                         sounds.play_bgm("cellar")
                         held_keys.clear()
+                    elif target == "mirror":
+                        sounds.play("ui_move")
+                        hub_whisper = "\"거울 너머에 또 다른 내가 서 있는 것 같다... (Ⅱ. 거울의 회랑 · 준비 중)\""
+                        hub_whisper_until = hub_elapsed + 4.5
+                    elif target == "clock":
+                        sounds.play("ui_move")
+                        hub_whisper = "\"거대한 태엽 소리가 굳게 닫힌 문 너머에서 멈춰 있다... (Ⅲ. 멈춘 시계탑 · 준비 중)\""
+                        hub_whisper_until = hub_elapsed + 4.5
+                    elif target == "diary":
+                        sounds.play("ui_confirm")
+                        screen = "diary"
+                        held_keys.clear()
+                    elif target == "mirror_prop":
+                        sounds.play("ui_move")
+                        if "cellar" in cleared_rooms:
+                            hub_whisper = "\"지하 저장고를 빠져나오고 나니, 거울 속 내 눈빛이 조금 더 선명해졌다.\""
+                        else:
+                            hub_whisper = "\"거울 속 내 얼굴이 흐릿하다... 등에 멘 시계 가방의 초침만 또렷이 비친다.\""
+                        hub_whisper_until = hub_elapsed + 4.5
+                    elif target == "clock_center":
+                        sounds.play("ui_move")
+                        if len(cleared_rooms) == 0:
+                            hub_whisper = "\"기억 시계의 보석 칸이 모두 비어 있다. 세 방의 기억을 되찾아야 한다.\""
+                        elif len(cleared_rooms) < len(MEMORY_ENTRIES):
+                            hub_whisper = f"\"기억 보석 {len(cleared_rooms)}/{len(MEMORY_ENTRIES)}개가 밝혀졌다. 남은 방의 기억을 더 찾아보자.\""
+                        else:
+                            hub_whisper = "\"모든 기억 보석이 빛나고 있다! 중앙 시계가 나를 부르는 것 같다.\""
+                        hub_whisper_until = hub_elapsed + 4.5
                 elif screen == "game" and event.key in (SDLK_RETURN, SDLK_KP_ENTER):
                     if run.near_test_door():
                         result = run.complete_round()
@@ -2548,6 +2916,7 @@ def main() -> None:
                         held_keys.clear()
                         delta_time = 0.0
                         if result == "clear":
+                            cleared_rooms.add("cellar")
                             screen = "clear"
                 elif screen == "game" and event.key in KEY_DIRECTIONS:
                     held_keys.add(event.key)
@@ -2644,6 +3013,13 @@ def main() -> None:
                 if hovered_item is not None and selected_pause_item != hovered_item:
                     selected_pause_item = hovered_item
                     sounds.play("ui_move")
+            elif (
+                event.type == SDL_MOUSEBUTTONDOWN
+                and event.button == SDL_BUTTON_LEFT
+                and screen == "diary"
+            ):
+                sounds.play("ui_move")
+                screen = "hub"
             elif (
                 event.type == SDL_MOUSEBUTTONDOWN
                 and event.button == SDL_BUTTON_LEFT
@@ -2781,6 +3157,7 @@ def main() -> None:
             if result != "playing":
                 held_keys.clear()
             if result == "clear":
+                cleared_rooms.add("cellar")
                 screen = "clear"
 
         if screen in ("game", "pause", "clear") or (screen == "settings" and pause_menu_open):
@@ -2816,11 +3193,14 @@ def main() -> None:
                 menu_font, hint_font, sprite,
                 story_scene, story_scene_elapsed, story_total_elapsed, story_reveal_all,
             )
-        elif screen == "hub":
+        elif screen in ("hub", "diary"):
             draw_hub(
                 menu_font, hint_font, sprite, hub,
                 hub_x, hub_y, hub_facing, hub_frame, hub_elapsed,
+                cleared_rooms, hub_whisper, hub_whisper_until,
             )
+            if screen == "diary":
+                draw_diary_overlay(heading_font, menu_font, hint_font, cleared_rooms)
         elif screen == "settings":
             draw_settings(
                 heading_font, menu_font, hint_font, selected_settings_item,
@@ -2831,25 +3211,26 @@ def main() -> None:
                 title_font, menu_font, hint_font, selected_menu_item, sprite
             )
         elif screen == "clear":
-            fill(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, (10, 12, 20, 200))
-            fill(270, 285, 1060, 330, (15, 21, 33, 238))
-            draw_rectangle(270, 285, 1330, 615, 168, 140, 92, filled=False)
-            draw_rectangle(276, 291, 1324, 609, 58, 92, 102, filled=False)
-            draw_centered_text(heading_font, "지하 저장고 탈출", 800, 545, (239, 209, 158))
+            fill(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, (10, 12, 20, 210))
+            fill(230, 250, 1140, 400, (15, 21, 33, 242))
+            draw_rectangle(230, 250, 1370, 650, 192, 158, 98, filled=False)
+            draw_rectangle(238, 258, 1362, 642, 62, 98, 108, filled=False)
+            draw_centered_text(hint_font, "첫 번째 기억 조각 복원됨   (1 / 3)", 800, 604, (132, 232, 206))
+            draw_centered_text(heading_font, "지하 저장고 탈출", 800, 544, (239, 209, 158))
             draw_centered_text(
                 menu_font,
-                "과거의 그림자들을 모두 피해, 마침내 첫 번째 봉인을 열었다.",
-                800, 464, (236, 228, 212),
+                "\"나를 쫓던 것은 괴물이 아니라, 어제의 나 자신이었다.\"",
+                800, 464, (242, 230, 202),
             )
             draw_centered_text(
-                menu_font,
-                "희미한 기억의 조각이 시계 가방 속에서 은은하게 빛나기 시작한다...",
-                800, 408, (176, 218, 222),
+                hint_font,
+                "시간의 홀 중앙 시계에 첫 번째 보석이 밝혀졌습니다.  로비의 '기억의 일기장'을 확인해 보세요!",
+                800, 396, (176, 218, 222),
             )
             draw_centered_text(
                 hint_font,
                 "5라운드 클리어     ·     ENTER  시간의 홀로     ·     ESC  메인 메뉴",
-                800, 332, (205, 188, 163),
+                800, 304, (205, 188, 163),
             )
         update_canvas()
 
