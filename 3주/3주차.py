@@ -235,28 +235,32 @@ PLAYER_RADIUS = 14
 PLAYER_SPEED = 205
 PLAYER_ACCELERATION = 780
 PLAYER_STOP_ACCELERATION = 1120
-START_SAFE_RADIUS = 60
-GHOST_HIT_RADIUS = 24
-FIRST_GHOST_DELAY = 1.0
-GHOST_INTERVAL = 1.25
-GHOST_BASE_SPEED = 1.2
-PRESSURE_STEPS = (12.0, 22.0, 34.0)
-PRESSURE_STEP = 0.2
-MIRROR_START = 22.0
-MIRROR_INTERVAL = 4.0
-MIRROR_GRACE = 1.2
-MONSTER_HIT_RADIUS = 28
-MONSTER_SLOW_SPEED = 0.65
-MONSTER_SLOW_DURATION = 1.0
-MONSTER_CONTACT_COOLDOWN = 2.2
+START_SAFE_RADIUS = 46
+GHOST_HIT_RADIUS = 27
+FIRST_GHOST_DELAY = 0.45
+GHOST_INTERVAL = 0.75
+GHOST_BASE_SPEED = 1.35
+PRESSURE_STEPS = (6.0, 12.0, 17.0)
+PRESSURE_STEP = 0.25
+MIRROR_START = 6.5
+MIRROR_INTERVAL = 2.4
+MIRROR_GRACE = 0.9
+MONSTER_HIT_RADIUS = 30
+MONSTER_SLOW_SPEED = 0.48
+MONSTER_SLOW_DURATION = 1.45
+MONSTER_CONTACT_COOLDOWN = 1.7
+MONSTER_TIME_PENALTY = 2.0
+KEY_SHIFT_MIN_ROUND = 3
+KEY_SHIFT_INTERVAL = 9.0
 # 열쇠가 저장고의 서로 다른 구역에 나타나도록 배치한다.
 ROUNDS = (
-    ((17, 11), 54),
-    ((4, 3), 52),
-    ((15, 4), 50),
-    ((5, 8), 50),
-    ((21, 6), 48),
+    ((17, 11), 28),
+    ((4, 3), 26),
+    ((15, 4), 24),
+    ((5, 8), 22),
+    ((21, 6), 20),
 )
+KEY_SHIFT_TILES = tuple(tile for tile, _ in ROUNDS)
 SPRITE_FRAME_SIZE = 320
 SPRITE_ROWS = {
     "down": 3 * SPRITE_FRAME_SIZE,
@@ -1042,14 +1046,14 @@ class Patrol:
                            dx < 0, frame, lift)
 
 
-# 첫 라운드에는 두 구역을 순찰하고, 이후 라운드마다 새 구역에 한 마리씩 합류한다.
+# 첫 라운드부터 세 구역을 빠르게 순찰하고, 라운드마다 추가 몬스터가 합류한다.
 MONSTER_PATROLS = (
-    Patrol("bat", 1, ((3, 3), (8, 3), (8, 6), (3, 6)), 118, 0.5),
-    Patrol("beetle", 1, ((17, 7), (22, 7), (22, 8), (17, 8)), 86, 1.6),
-    Patrol("spider", 2, ((11, 8), (15, 8), (15, 10), (11, 10)), 105, 2.8),
-    Patrol("rat", 3, ((16, 11), (21, 11), (21, 12), (16, 12)), 92, 0.8),
-    Patrol("skeleton", 4, ((11, 2), (17, 2), (17, 3), (11, 3)), 112, 1.4),
-    Patrol("slime", 5, ((2, 7), (6, 7), (6, 8), (2, 8)), 100, 1.0),
+    Patrol("bat", 1, ((3, 3), (8, 3), (8, 6), (3, 6)), 168, 0.5),
+    Patrol("beetle", 1, ((17, 7), (22, 7), (22, 8), (17, 8)), 134, 1.6),
+    Patrol("spider", 1, ((11, 8), (15, 8), (15, 10), (11, 10)), 152, 2.8),
+    Patrol("rat", 2, ((16, 11), (21, 11), (21, 12), (16, 12)), 142, 0.8),
+    Patrol("skeleton", 3, ((11, 2), (17, 2), (17, 3), (11, 3)), 162, 1.4),
+    Patrol("slime", 4, ((2, 7), (6, 7), (6, 8), (2, 8)), 146, 1.0),
 )
 
 
@@ -1188,6 +1192,7 @@ class CellarRun:
         self.patrols = [patrol for patrol in MONSTER_PATROLS if patrol.first_round <= self.round_number]
         self.monsters = [patrol.pose_at(0.0) for patrol in self.patrols]
         self.slow_until = self.monster_contact_ready = 0.0
+        self.next_key_shift = KEY_SHIFT_INTERVAL
         self.notice, self.notice_until = notice, 3.0
 
     def sample(self, movement_elapsed: float) -> MovementSample:
@@ -1274,9 +1279,23 @@ class CellarRun:
         ):
             self.slow_until = self.elapsed + MONSTER_SLOW_DURATION
             self.monster_contact_ready = self.elapsed + MONSTER_CONTACT_COOLDOWN
-            self.notice = "몬스터와 부딪혀 잠시 느려졌습니다."
-            self.notice_until = self.slow_until
+            self.time_limit = max(self.elapsed + 0.2, self.time_limit - MONSTER_TIME_PENALTY)
+            self.notice = "몬스터와 부딪혀 느려지고 제한 시간이 2초 줄었습니다!"
+            self.notice_until = self.elapsed + 2.0
             self.events.append(("monster", self.x, self.y))
+        # 3라운드부터는 일정 시간 동안 열쇠를 못 얻으면 열쇠가 다른 구역으로 이동한다.
+        if (
+            not self.has_key
+            and self.round_number >= KEY_SHIFT_MIN_ROUND
+            and self.elapsed >= self.next_key_shift
+        ):
+            self.next_key_shift += KEY_SHIFT_INTERVAL
+            candidates = [tile for tile in KEY_SHIFT_TILES if tile != self.key_tile]
+            self.key_tile = random.choice(candidates)
+            new_kx, new_ky = tile_center(*self.key_tile)
+            self.notice = "열쇠가 다른 구역으로 이동했습니다!"
+            self.notice_until = self.elapsed + 2.2
+            self.events.append(("key_shift", new_kx, new_ky))
         # 같은 위치에서 출발한 기록이 겹쳐도 계단 앞에서는 안전하다.
         if hypot(self.x - PLAYER_START[0], self.y - PLAYER_START[1]) > START_SAFE_RADIUS:
             for ghost in self.ghosts:
@@ -2799,6 +2818,9 @@ def main() -> None:
             if kind == "key":
                 sounds.play("key")
                 effects.burst_key(ex, ey)
+            elif kind == "key_shift":
+                sounds.play("ui_move")
+                effects.rings.append(ShockRing(ex, ey, 10, 68, 0.45, (255, 214, 108)))
             elif kind == "monster":
                 sounds.play("monster_hit")
                 effects.burst_monster_hit(ex, ey)
