@@ -150,7 +150,7 @@ MEMORY_ENTRIES = (
         "마지막 페이지는 찢어진 채 멈춰 있다...  (3번째 미니게임 · 준비 중)",
     ),
 )
-PAUSE_ITEMS = (("설정", 430), ("종료", 310))
+PAUSE_ITEMS = (("로비로 돌아가기", 470), ("설정", 370), ("게임 종료", 270))
 PAUSE_ITEM_Y = tuple(y for _, y in PAUSE_ITEMS)
 STORY_TYPE_SPEED = 26.0
 STORY_FADE_DURATION = 0.45
@@ -2663,25 +2663,25 @@ def draw_settings(
 
 
 def draw_pause_overlay(
-    menu_font: Font,
-    hint_font: Font,
+    menu_font: Font | CrispFont,
+    hint_font: Font | CrispFont,
     selected_item: int,
 ) -> None:
     draw_rectangle(
-        0, 0, SCREEN_WIDTH - 1, SCREEN_HEIGHT - 1, 3, 8, 15, 64, filled=True
+        0, 0, SCREEN_WIDTH - 1, SCREEN_HEIGHT - 1, 3, 8, 15, 96, filled=True
     )
-    panel_left, panel_bottom = 320, 190
-    panel_right, panel_top = 900, 630
+    panel_left, panel_bottom = 300, 165
+    panel_right, panel_top = 920, 640
     draw_rectangle(
         panel_left, panel_bottom, panel_right, panel_top,
-        12, 24, 36, 178, filled=True,
+        12, 24, 36, 212, filled=True,
     )
     draw_rectangle(
         panel_left, panel_bottom, panel_right, panel_top,
         75, 120, 124, filled=False,
     )
     draw_centered_text(
-        menu_font, "일시정지", (panel_left + panel_right) / 2, 555,
+        menu_font, "일시정지", (panel_left + panel_right) / 2, 576,
         (238, 221, 185),
     )
     for index, (label, y) in enumerate(PAUSE_ITEMS):
@@ -2689,8 +2689,8 @@ def draw_pause_overlay(
             menu_font, label, y, index == selected_item, MENU_BUTTON_CENTER_X
         )
     draw_centered_text(
-        hint_font, "ESC  TO RESUME", (panel_left + panel_right) / 2, 225,
-        (115, 145, 153),
+        hint_font, "ESC  계속하기", (panel_left + panel_right) / 2, 198,
+        (132, 166, 174),
     )
 
 
@@ -2834,6 +2834,7 @@ def main() -> None:
                     elif screen == "game":
                         sounds.play("ui_move")
                         screen = "pause"
+                        selected_pause_item = 0
                         pause_menu_open = True
                         sounds.set_paused_duck(True)
                         held_keys.clear()
@@ -2952,6 +2953,9 @@ def main() -> None:
                 elif screen == "pause" and event.key in (SDLK_RETURN, SDLK_KP_ENTER):
                     sounds.play("ui_confirm")
                     if selected_pause_item == 0:
+                        pause_menu_open = False
+                        enter_hub()
+                    elif selected_pause_item == 1:
                         pause_menu_open = True
                         screen = "settings"
                     else:
@@ -3047,6 +3051,9 @@ def main() -> None:
                     selected_pause_item = clicked_item
                     sounds.play("ui_confirm")
                     if clicked_item == 0:
+                        pause_menu_open = False
+                        enter_hub()
+                    elif clicked_item == 1:
                         pause_menu_open = True
                         screen = "settings"
                     else:
