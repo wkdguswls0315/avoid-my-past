@@ -43,6 +43,7 @@ from pico2d import (
     SDLK_UP,
     SDLK_a,
     SDLK_d,
+    SDLK_r,
     SDLK_s,
     SDLK_w,
     SDL_BUTTON_LEFT,
@@ -62,6 +63,12 @@ from pico2d import (
     open_canvas,
     update_canvas,
 )
+
+_SCRIPT_DIR = str(Path(__file__).resolve().parent)
+if _SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPT_DIR)
+
+from mirror_room import MirrorHallRun, draw_mirror_hall
 
 
 SCREEN_WIDTH = 1600
@@ -106,7 +113,7 @@ HUB_CLOCK_RADIUS = 148
 HUB_SPEED = 210
 HUB_DOORS = (
     ("cellar", "Ⅰ. 지하 저장고", HUB_CELLAR_DOOR_TILE, True),
-    ("mirror", "Ⅱ. 거울의 회랑", HUB_MIRROR_DOOR_TILE, False),
+    ("mirror", "Ⅱ. 거울의 회랑", HUB_MIRROR_DOOR_TILE, True),
     ("clock", "Ⅲ. 멈춘 시계탑", HUB_CLOCK_DOOR_TILE, False),
 )
 HUB_LAMP_TILES = (
@@ -849,20 +856,16 @@ def draw_hub_details() -> None:
         fill(d1x + bar_x, d1y - 28, 3, 54, (112, 118, 128))
     draw_rectangle(d1x - 34, d1y - 30, d1x + 34, d1y + 26, 174, 144, 96)
 
-    # 2번 문 (중앙): 'Ⅱ. 거울의 회랑' — 은빛 거울 문과 봉인 띠
-    d2x, d2y = draw_hub_door_frame(HUB_MIRROR_DOOR_TILE[0], (158, 134, 186))
-    fill(d2x - 34, d2y - 30, 68, 64, (36, 34, 54))
-    fill(d2x - 26, d2y - 24, 52, 50, (74, 68, 108))
-    fill(d2x - 22, d2y - 20, 44, 42, (108, 102, 148))
-    draw_line(d2x - 16, d2y - 12, d2x + 12, d2y + 16, 182, 178, 224)
-    draw_line(d2x - 6, d2y - 16, d2x + 16, d2y + 6, 162, 156, 206)
-    fill(d2x - 42, d2y + 26, 84, 10, (118, 114, 136))
-    # 대각선 봉인 사슬과 자물쇠
-    draw_line(d2x - 32, d2y - 24, d2x + 32, d2y + 22, 176, 98, 108)
-    draw_line(d2x - 32, d2y + 22, d2x + 32, d2y - 24, 176, 98, 108)
-    draw_circle(d2x, d2y, 9, 44, 34, 46, filled=True)
-    draw_circle(d2x, d2y, 9, 204, 144, 126)
-    draw_rectangle(d2x - 34, d2y - 30, d2x + 34, d2y + 26, 168, 148, 198)
+    # 2번 문 (중앙): 'Ⅱ. 거울의 회랑' — 빛나는 은빛 거울 문 (개방됨)
+    d2x, d2y = draw_hub_door_frame(HUB_MIRROR_DOOR_TILE[0], (168, 142, 206))
+    fill(d2x - 34, d2y - 30, 68, 64, (32, 30, 52))
+    fill(d2x - 26, d2y - 24, 52, 50, (78, 70, 118))
+    fill(d2x - 22, d2y - 20, 44, 42, (118, 110, 166))
+    draw_line(d2x - 16, d2y - 12, d2x + 12, d2y + 16, 204, 198, 242)
+    draw_line(d2x - 6, d2y - 16, d2x + 16, d2y + 6, 178, 170, 224)
+    fill(d2x - 42, d2y + 26, 84, 10, (132, 124, 152))
+    fill(d2x - 42, d2y + 24, 84, 3, (198, 172, 232))
+    draw_rectangle(d2x - 34, d2y - 30, d2x + 34, d2y + 26, 186, 164, 220)
 
     # 3번 문 (우측): 'Ⅲ. 멈춘 시계탑' — 황동 톱니 문과 봉인 띠
     d3x, d3y = draw_hub_door_frame(HUB_CLOCK_DOOR_TILE[0], (176, 146, 92))
@@ -2143,17 +2146,30 @@ def draw_hub_gate_effects(
         alpha = int((145 if near_cellar else 95) * sin(pi * rise / 52))
         fill(mx, my, 3, 3, (*c1_inner, alpha))
 
-    # 2번 문 (거울의 회랑) & 3번 문 (멈춘 시계탑): 봉인된 은은한 신비 오라
-    for room_id, tile, rgb in (
-        ("mirror", HUB_MIRROR_DOOR_TILE, (186, 146, 232)),
-        ("clock", HUB_CLOCK_DOOR_TILE, (224, 176, 98)),
-    ):
-        dx, dy = tile_center(*tile)
-        near = target == room_id
-        alpha = int((34 if near else 18) + 10 * pulse)
-        draw_circle(dx, dy - 4, 28, *rgb, alpha, filled=True)
-        if near:
-            fill(dx - 50, dy - 43, 100, 4, (*rgb, 150))
+    # 2번 문 (거울의 회랑): 개방된 은빛·보라 포털 (클리어 시 황금빛)
+    d2x, d2y = tile_center(*HUB_MIRROR_DOOR_TILE)
+    mirror_cleared = "mirror" in cleared_rooms
+    near_mirror = target == "mirror"
+    c2 = (246, 206, 114) if mirror_cleared else (196, 154, 248)
+    c2_inner = (255, 240, 196) if mirror_cleared else (232, 212, 255)
+    a2 = int((46 if near_mirror else 26) + 16 * pulse)
+    draw_circle(d2x, d2y - 4, 34, *c2, a2, filled=True)
+    draw_circle(d2x, d2y - 4, 18, *c2_inner, a2 + 12, filled=True)
+    if near_mirror:
+        fill(d2x - 50, d2y - 43, 100, 5, (*c2, 175))
+    for mote in range(4):
+        rise = (elapsed * (15 + mote * 3) + mote * 15) % 50
+        mx = d2x + 20 * sin(elapsed * 1.9 + mote * 1.5)
+        my = d2y - 24 + rise
+        alpha = int((135 if near_mirror else 85) * sin(pi * rise / 50))
+        fill(mx, my, 3, 3, (*c2_inner, alpha))
+
+    # 3번 문 (멈춘 시계탑): 봉인된 은은한 신비 오라
+    d3x, d3y = tile_center(*HUB_CLOCK_DOOR_TILE)
+    near_clock = target == "clock"
+    draw_circle(d3x, d3y - 4, 28, 224, 176, 98, int((34 if near_clock else 18) + 10 * pulse), filled=True)
+    if near_clock:
+        fill(d3x - 50, d3y - 43, 100, 4, (224, 176, 98, 150))
 
     # 왼쪽 회랑 일기장 옆 작은 촛불 깜박임
     diary_x, diary_y = tile_center(*HUB_DIARY_TILE)
@@ -2250,8 +2266,8 @@ def draw_hub(
         bottom_prompt = "ENTER 키를 눌러 'Ⅰ. 지하 저장고' 입장"
     elif target == "mirror":
         gx, gy = tile_center(*HUB_MIRROR_DOOR_TILE)
-        badge_pos = (gx, gy - 104, "ENTER 조사", (186, 148, 226))
-        bottom_prompt = "ENTER 키를 눌러 봉인된 'Ⅱ. 거울의 회랑' 살펴보기"
+        badge_pos = (gx, gy - 104, "ENTER 입장", (196, 154, 248))
+        bottom_prompt = "ENTER 키를 눌러 'Ⅱ. 거울의 회랑' 입장"
     elif target == "clock":
         gx, gy = tile_center(*HUB_CLOCK_DOOR_TILE)
         badge_pos = (gx, gy - 104, "ENTER 조사", (222, 182, 108))
@@ -2735,6 +2751,7 @@ def main() -> None:
     hub = HubHall(props)
     cellar = Cellar(props)
     run = CellarRun()
+    mirror_run = MirrorHallRun()
     sounds = SoundBank(assets / "sounds")
     effects = EffectsManager()
     held_keys: set[int] = set()
@@ -2742,6 +2759,7 @@ def main() -> None:
     running = True
     screen = "menu"
     pause_menu_open = False
+    pause_return_screen = "game"
     hub_x, hub_y = HUB_START
     hub_vx = hub_vy = 0.0
     hub_facing, hub_frame = "up", 0
@@ -2853,8 +2871,9 @@ def main() -> None:
                             screen = "pause"
                         else:
                             screen = "menu"
-                    elif screen == "game":
+                    elif screen in ("game", "mirror"):
                         sounds.play("ui_move")
+                        pause_return_screen = screen
                         screen = "pause"
                         selected_pause_item = 0
                         pause_menu_open = True
@@ -2862,10 +2881,10 @@ def main() -> None:
                         held_keys.clear()
                     elif screen == "pause":
                         sounds.play("ui_move")
-                        screen = "game"
+                        screen = pause_return_screen
                         pause_menu_open = False
                         sounds.set_paused_duck(False)
-                    elif screen == "clear":
+                    elif screen in ("clear", "mirror_clear"):
                         sounds.play("ui_move")
                         screen = "menu"
                         sounds.play_bgm("hub")
@@ -2890,7 +2909,7 @@ def main() -> None:
                     SDLK_RETURN, SDLK_KP_ENTER, SDLK_SPACE
                 ):
                     advance_story()
-                elif screen == "clear" and event.key in (SDLK_RETURN, SDLK_KP_ENTER):
+                elif screen in ("clear", "mirror_clear") and event.key in (SDLK_RETURN, SDLK_KP_ENTER):
                     sounds.play("ui_confirm")
                     enter_hub()
                 elif screen == "hub" and event.key in (SDLK_RETURN, SDLK_KP_ENTER):
@@ -2905,9 +2924,13 @@ def main() -> None:
                         sounds.play_bgm("cellar")
                         held_keys.clear()
                     elif target == "mirror":
-                        sounds.play("ui_move")
-                        hub_whisper = "\"거울 너머에 또 다른 내가 서 있는 것 같다... (Ⅱ. 거울의 회랑 · 준비 중)\""
-                        hub_whisper_until = hub_elapsed + 4.5
+                        sounds.play("ui_confirm")
+                        screen = "mirror"
+                        mirror_run.reset_all()
+                        effects.clear()
+                        sounds.set_paused_duck(False)
+                        sounds.play_bgm("hub")
+                        held_keys.clear()
                     elif target == "clock":
                         sounds.play("ui_move")
                         hub_whisper = "\"거대한 태엽 소리가 굳게 닫힌 문 너머에서 멈춰 있다... (Ⅲ. 멈춘 시계탑 · 준비 중)\""
@@ -2941,6 +2964,28 @@ def main() -> None:
                         if result == "clear":
                             cleared_rooms.add("cellar")
                             screen = "clear"
+                elif screen == "mirror" and event.key == SDLK_r:
+                    sounds.play("ui_move")
+                    mirror_run.begin_stage("현재 스테이지를 처음부터 다시 시작합니다.")
+                    held_keys.clear()
+                elif screen == "mirror" and event.key in KEY_DIRECTIONS:
+                    held_keys.add(event.key)
+                    dx, dy = KEY_DIRECTIONS[event.key]
+                    res = mirror_run.try_step(dx, dy)
+                    for kind, ex, ey in mirror_run.events:
+                        if kind == "step":
+                            sounds.play("step")
+                        elif kind == "next":
+                            sounds.play("round_clear")
+                            effects.burst_round_clear(ex, ey)
+                        elif kind == "clear":
+                            sounds.play("stage_clear")
+                            effects.burst_round_clear(ex, ey)
+                    mirror_run.events.clear()
+                    if res == "clear":
+                        cleared_rooms.add("mirror")
+                        held_keys.clear()
+                        screen = "mirror_clear"
                 elif screen == "game" and event.key in KEY_DIRECTIONS:
                     held_keys.add(event.key)
                 elif screen == "hub" and event.key in KEY_DIRECTIONS:
@@ -3166,6 +3211,26 @@ def main() -> None:
                 hub_frame = 0
                 last_hub_frame = 0
 
+        if screen == "mirror":
+            move_x = sum(KEY_DIRECTIONS[key][0] for key in held_keys)
+            move_y = sum(KEY_DIRECTIONS[key][1] for key in held_keys)
+            res = mirror_run.update(move_x, move_y, delta_time)
+            for kind, ex, ey in mirror_run.events:
+                if kind == "step":
+                    sounds.play("step")
+                elif kind == "next":
+                    sounds.play("round_clear")
+                    effects.burst_round_clear(ex, ey)
+                elif kind == "clear":
+                    sounds.play("stage_clear")
+                    effects.burst_round_clear(ex, ey)
+            mirror_run.events.clear()
+            effects.update(delta_time)
+            if res == "clear":
+                cleared_rooms.add("mirror")
+                held_keys.clear()
+                screen = "mirror_clear"
+
         if screen == "game":
             move_x = sum(KEY_DIRECTIONS[key][0] for key in held_keys)
             move_y = sum(KEY_DIRECTIONS[key][1] for key in held_keys)
@@ -3189,7 +3254,23 @@ def main() -> None:
                 cleared_rooms.add("cellar")
                 screen = "clear"
 
-        if screen in ("game", "pause", "clear") or (screen == "settings" and pause_menu_open):
+        show_cellar = (
+            screen in ("game", "clear")
+            or (screen == "pause" and pause_return_screen == "game")
+            or (screen == "settings" and pause_menu_open and pause_return_screen == "game")
+        )
+        show_mirror = (
+            screen in ("mirror", "mirror_clear")
+            or (screen == "pause" and pause_return_screen == "mirror")
+            or (screen == "settings" and pause_menu_open and pause_return_screen == "mirror")
+        )
+
+        if show_mirror:
+            draw_mirror_hall(menu_font, hint_font, draw_centered_text, sprite, mirror_run)
+            effects.draw_world()
+            effects.draw_overlay()
+
+        if show_cellar:
             shake_x, shake_y = effects.shake_offset() if screen == "game" else (0, 0)
             if shake_x or shake_y:
                 clear_canvas()
@@ -3238,6 +3319,28 @@ def main() -> None:
         elif screen == "menu":
             draw_menu(
                 title_font, menu_font, hint_font, selected_menu_item, sprite
+            )
+        elif screen == "mirror_clear":
+            fill(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, (10, 12, 20, 210))
+            fill(230, 250, 1140, 400, (18, 18, 34, 242))
+            draw_rectangle(230, 250, 1370, 650, 196, 158, 242, filled=False)
+            draw_rectangle(238, 258, 1362, 642, 92, 78, 132, filled=False)
+            draw_centered_text(hint_font, f"두 번째 기억 조각 복원됨   ({len(cleared_rooms)} / 3)", 800, 604, (206, 166, 252))
+            draw_centered_text(heading_font, "거울의 회랑 통과", 800, 544, (239, 209, 158))
+            draw_centered_text(
+                menu_font,
+                "\"피해야 할 그림자가 아니라, 함께 나아가야 할 나의 조각이었다.\"",
+                800, 464, (242, 230, 202),
+            )
+            draw_centered_text(
+                hint_font,
+                "시간의 홀 중앙 시계에 두 번째 보석이 밝혀졌습니다.  로비의 '기억의 일기장'을 확인해 보세요!",
+                800, 396, (206, 186, 238),
+            )
+            draw_centered_text(
+                hint_font,
+                f"이동 {mirror_run.moves}회 클리어     ·     ENTER  시간의 홀로     ·     ESC  메인 메뉴",
+                800, 304, (205, 188, 163),
             )
         elif screen == "clear":
             fill(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, (10, 12, 20, 210))
