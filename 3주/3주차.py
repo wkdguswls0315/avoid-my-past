@@ -2831,6 +2831,27 @@ def main() -> None:
         else:
             enter_hub()
 
+    def handle_mirror_events() -> None:
+        for kind, ex, ey in mirror_run.events:
+            if kind == "step":
+                sounds.play("step")
+            elif kind == "switch":
+                sounds.play("ui_confirm")
+                effects.rings.append(ShockRing(ex, ey, 10, 74, 0.38, (124, 232, 226)))
+            elif kind == "key":
+                sounds.play("key")
+                effects.burst_key(ex, ey)
+            elif kind in ("trap", "out_of_moves"):
+                sounds.play("ghost_hit")
+                effects.burst_ghost_hit(ex, ey)
+            elif kind == "next":
+                sounds.play("round_clear")
+                effects.burst_round_clear(ex, ey)
+            elif kind == "clear":
+                sounds.play("stage_clear")
+                effects.burst_round_clear(ex, ey)
+        mirror_run.events.clear()
+
     def handle_run_events() -> None:
         for kind, ex, ey in run.events:
             if kind == "key":
@@ -2972,17 +2993,10 @@ def main() -> None:
                     held_keys.add(event.key)
                     dx, dy = KEY_DIRECTIONS[event.key]
                     res = mirror_run.try_step(dx, dy)
-                    for kind, ex, ey in mirror_run.events:
-                        if kind == "step":
-                            sounds.play("step")
-                        elif kind == "next":
-                            sounds.play("round_clear")
-                            effects.burst_round_clear(ex, ey)
-                        elif kind == "clear":
-                            sounds.play("stage_clear")
-                            effects.burst_round_clear(ex, ey)
-                    mirror_run.events.clear()
-                    if res == "clear":
+                    handle_mirror_events()
+                    if res == "reset":
+                        held_keys.clear()
+                    elif res == "clear":
                         cleared_rooms.add("mirror")
                         held_keys.clear()
                         screen = "mirror_clear"
@@ -3215,18 +3229,11 @@ def main() -> None:
             move_x = sum(KEY_DIRECTIONS[key][0] for key in held_keys)
             move_y = sum(KEY_DIRECTIONS[key][1] for key in held_keys)
             res = mirror_run.update(move_x, move_y, delta_time)
-            for kind, ex, ey in mirror_run.events:
-                if kind == "step":
-                    sounds.play("step")
-                elif kind == "next":
-                    sounds.play("round_clear")
-                    effects.burst_round_clear(ex, ey)
-                elif kind == "clear":
-                    sounds.play("stage_clear")
-                    effects.burst_round_clear(ex, ey)
-            mirror_run.events.clear()
+            handle_mirror_events()
             effects.update(delta_time)
-            if res == "clear":
+            if res == "reset":
+                held_keys.clear()
+            elif res == "clear":
                 cleared_rooms.add("mirror")
                 held_keys.clear()
                 screen = "mirror_clear"
@@ -3266,8 +3273,15 @@ def main() -> None:
         )
 
         if show_mirror:
+            shake_x, shake_y = effects.shake_offset() if screen == "mirror" else (0, 0)
+            if shake_x or shake_y:
+                clear_canvas()
+                viewport = pico2d.SDL_Rect(shake_x, shake_y, SCREEN_WIDTH, SCREEN_HEIGHT)
+                pico2d.SDL_RenderSetViewport(pico2d_core.renderer, ctypes.byref(viewport))
             draw_mirror_hall(menu_font, hint_font, draw_centered_text, sprite, mirror_run)
             effects.draw_world()
+            if shake_x or shake_y:
+                pico2d.SDL_RenderSetViewport(pico2d_core.renderer, None)
             effects.draw_overlay()
 
         if show_cellar:
@@ -3339,7 +3353,7 @@ def main() -> None:
             )
             draw_centered_text(
                 hint_font,
-                f"이동 {mirror_run.moves}회 클리어     ·     ENTER  시간의 홀로     ·     ESC  메인 메뉴",
+                f"5라운드 클리어 (총 {mirror_run.total_moves}회 이동)     ·     ENTER  시간의 홀로     ·     ESC  메인 메뉴",
                 800, 304, (205, 188, 163),
             )
         elif screen == "clear":
