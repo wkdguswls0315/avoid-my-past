@@ -269,6 +269,17 @@ ROUNDS = (
     ((21, 6), 20),
 )
 KEY_SHIFT_TILES = tuple(tile for tile, _ in ROUNDS)
+# 각 라운드의 위험한 우회 경로에 배치되는 '기억 조각' 보너스 아이템 위치
+SHARD_TILES = (
+    (4, 3),
+    (20, 11),
+    (4, 8),
+    (21, 7),
+    (12, 2),
+)
+SHARD_BONUS_SCORE = 250
+ROUND_CLEAR_BASE_SCORE = 100
+TIME_BONUS_PER_SEC = 5
 SPRITE_FRAME_SIZE = 320
 SPRITE_ROWS = {
     "down": 3 * SPRITE_FRAME_SIZE,
@@ -1179,15 +1190,19 @@ class CellarRun:
     def reset(self, notice: str = "") -> None:
         self.routes.clear()
         self.mirror_routes.clear()
+        self.score = 0
+        self.total_shards = 0
         self.begin_round(notice)
 
     def begin_round(self, notice: str = "") -> None:
         self.key_tile, self.time_limit = ROUNDS[self.round_number - 1]
+        self.shard_tile = SHARD_TILES[self.round_number - 1]
         self.x, self.y = PLAYER_START
         self.facing, self.frame = "down", 0
         self.velocity_x = self.velocity_y = 0.0
         self.elapsed = self.animation_time = 0.0
         self.has_key = False
+        self.has_shard = False
         self.recording = [self.sample(0.0)]
         self.ghosts: list[Ghost] = []
         self.patrols = [patrol for patrol in MONSTER_PATROLS if patrol.first_round <= self.round_number]
@@ -1207,13 +1222,20 @@ class CellarRun:
         if len(self.recording) < 2:
             return "playing"
         door_x, door_y = tile_center(*GOAL_TILE)
+        remaining_sec = max(0, int(self.time_limit - self.elapsed))
+        gained = ROUND_CLEAR_BASE_SCORE + remaining_sec * TIME_BONUS_PER_SEC
+        if self.has_shard:
+            gained += SHARD_BONUS_SCORE
+            self.total_shards += 1
+        self.score += gained
         self.routes.append(self.recording)
         if len(self.routes) == len(ROUNDS):
             self.events.append(("clear", door_x, door_y))
             return "clear"
         self.mirror_routes.append(reflected_route(self.recording))
         self.events.append(("next", door_x, door_y))
-        self.begin_round("분신이 경로를 반복합니다. 오래 머물수록 더 빨라집니다.")
+        bonus_msg = f" (+{gained}점 · 기억 조각 보너스!)" if self.has_shard else f" (+{gained}점)"
+        self.begin_round(f"라운드 통과{bonus_msg}  분신이 경로를 반복합니다.")
         return "next"
 
     def update_ghosts(self) -> None:
@@ -1316,6 +1338,12 @@ class CellarRun:
             self.notice = "열쇠를 찾았습니다. 북동쪽 철문으로 가세요."
             self.notice_until = self.elapsed + 2.5
             self.events.append(("key", key_x, key_y))
+        shard_x, shard_y = tile_center(*self.shard_tile)
+        if not self.has_shard and hypot(self.x - shard_x, self.y - shard_y) < 24:
+            self.has_shard = True
+            self.notice = f"기억 조각 획득! 탈출 시 +{SHARD_BONUS_SCORE}점 (우회 경로도 분신에 기록됩니다)"
+            self.notice_until = self.elapsed + 3.0
+            self.events.append(("shard", shard_x, shard_y))
         door_x, door_y = tile_center(*GOAL_TILE)
         if self.has_key and hypot(self.x - door_x, self.y - door_y) < 25:
             return self.complete_round()
@@ -1518,6 +1546,20 @@ class EffectsManager:
         self.rings.append(ShockRing(x, y, 8, 52, 0.28, (255, 245, 190)))
         self.trigger_flash((255, 214, 110), 48, 0.22)
         self.trigger_shake(4.5, 0.16)
+
+    def burst_shard(self, x: float, y: float) -> None:
+        for index in range(24):
+            angle = index * (2 * pi / 24) + random.uniform(-0.14, 0.14)
+            speed = random.uniform(75, 225)
+            color = (134, 224, 255) if index % 2 == 0 else (206, 158, 255)
+            self.particles.append(
+                Particle(x, y, cos(angle) * speed, sin(angle) * speed,
+                         random.uniform(0.38, 0.68), random.uniform(4.0, 7.0), color)
+            )
+        self.rings.append(ShockRing(x, y, 10, 92, 0.44, (134, 224, 255)))
+        self.rings.append(ShockRing(x, y, 8, 58, 0.30, (216, 174, 255)))
+        self.trigger_flash((152, 220, 255), 52, 0.22)
+        self.trigger_shake(4.0, 0.14)
 
     def burst_round_clear(self, x: float, y: float) -> None:
         for index in range(26):
@@ -1750,41 +1792,49 @@ def draw_test_door(hint_font: Font, nearby: bool) -> None:
 
 
 def draw_run_hud(menu_font: Font, hint_font: Font, run: CellarRun) -> None:
-    fill(12, 847, 1458, 44, (23, 20, 24, 236))
-    draw_rectangle(12, 847, 1470, 891, 133, 106, 74, filled=False)
-    menu_font.draw(27, 867, "대저택 지하 저장고", (239, 209, 158))
+    fill(12, 847, 1574, 44, (23, 20, 24, 236))
+    draw_rectangle(12, 847, 1586, 891, 133, 106, 74, filled=False)
+    menu_font.draw(24, 867, "지하 저장고", (239, 209, 158))
     remaining = max(0, int(run.time_limit - run.elapsed + 0.999))
     key = "YES" if run.has_key else "NO"
     low_time = remaining <= 10
     time_pulse = low_time and int(run.elapsed * 4) % 2 == 0
-    hint_font.draw(316, 865, f"ROUND {run.round_number}/{len(ROUNDS)}", (224, 210, 187))
+    hint_font.draw(208, 865, f"R {run.round_number}/{len(ROUNDS)}", (224, 210, 187))
     hint_font.draw(
-        444, 865, f"TIME {remaining:02d}s",
+        294, 865, f"TIME {remaining:02d}s",
         (255, 114, 104) if time_pulse else ((248, 166, 112) if low_time else (224, 210, 187)),
     )
     hint_font.draw(
-        564, 865, f"KEY {key}",
+        416, 865, f"KEY {key}",
         (118, 234, 184) if run.has_key else (224, 210, 187),
     )
+    shard_shown = run.total_shards + (1 if run.has_shard else 0)
+    shard_label = f"조각 {shard_shown}/{len(ROUNDS)}" + (" ★" if run.has_shard else "")
+    hint_font.draw(
+        522, 865, shard_label,
+        (146, 232, 255) if run.has_shard else (172, 194, 212),
+    )
+    hint_font.draw(664, 865, f"점수 {run.score}", (246, 214, 132))
     mirrors = sum(ghost.mirrored for ghost in run.ghosts)
     originals = len(run.ghosts) - mirrors
     speed = 1.0
     if run.routes:
         speed = GHOST_BASE_SPEED + PRESSURE_STEP * sum(run.elapsed >= step for step in PRESSURE_STEPS)
-    hint_font.draw(736, 865, f"SHADOWS {originals}", (139, 207, 212))
-    hint_font.draw(896, 865, f"SPEED x{speed:.1f}", (239, 184, 123) if speed > 1 else (224, 210, 187))
+    hint_font.draw(804, 865, f"SHADOWS {originals}", (139, 207, 212))
+    hint_font.draw(956, 865, f"SPEED x{speed:.1f}", (239, 184, 123) if speed > 1 else (224, 210, 187))
     if mirrors < len(run.mirror_routes):
         until = max(0, int(MIRROR_START + mirrors * MIRROR_INTERVAL - run.elapsed + 0.999))
-        mirror_label = f"MIRRORS {mirrors}   NEXT {until:02d}s"
+        mirror_label = f"MIRRORS {mirrors}  NEXT {until:02d}s"
     else:
         mirror_label = f"MIRRORS {mirrors}"
-    hint_font.draw(1080, 865, mirror_label, (208, 147, 255))
+    hint_font.draw(1112, 865, mirror_label, (208, 147, 255))
     slowed = run.elapsed < run.slow_until
     monster_label = f"MOBS {len(run.monsters)}" + (" SLOW" if slowed else "")
-    hint_font.draw(1325, 865, monster_label, (246, 164, 96) if slowed else (224, 210, 187))
+    hint_font.draw(1378, 865, monster_label, (246, 164, 96) if slowed else (224, 210, 187))
     if run.notice and run.elapsed < run.notice_until:
-        fill(355, 10, 890, 45, (23, 20, 24, 230))
-        draw_centered_text(menu_font, run.notice, 800, 32, (239, 209, 158))
+        fill(260, 10, 1080, 45, (23, 20, 24, 232))
+        draw_rectangle(260, 10, 1340, 55, 133, 106, 74, filled=False)
+        draw_centered_text(hint_font, run.notice, 800, 32, (239, 214, 164))
 
 
 def draw_key(x: float, y: float, elapsed: float) -> None:
@@ -1794,6 +1844,30 @@ def draw_key(x: float, y: float, elapsed: float) -> None:
     draw_line(x - 1, y + 2, x + 13, y + 2, 255, 211, 102)
     draw_line(x + 8, y + 2, x + 8, y - 4, 255, 211, 102)
     draw_line(x + 13, y + 2, x + 13, y - 6, 255, 211, 102)
+
+
+def draw_memory_shard(x: float, y: float, elapsed: float) -> None:
+    """Draw a glowing crystalline Memory Shard bonus pickup."""
+    bob = sin(elapsed * 3.8 + 1.2) * 5.0
+    cy = y + bob
+    pulse = 0.5 + 0.5 * sin(elapsed * 4.6)
+    draw_circle(x, cy, int(22 + 4 * pulse), 134, 224, 255, int(34 + 22 * pulse), filled=True)
+    draw_circle(x, cy, 13, 198, 156, 255, int(52 + 28 * pulse), filled=True)
+    # 마름모 결정체 실루엣
+    top = (x, cy + 15)
+    right = (x + 11, cy)
+    bottom = (x, cy - 15)
+    left = (x - 11, cy)
+    for a, b in ((top, right), (right, bottom), (bottom, left), (left, top)):
+        draw_line(*a, *b, 162, 236, 255)
+    fill(x - 5, cy - 5, 10, 10, (192, 242, 255, 215))
+    fill(x - 2, cy - 2, 4, 4, (255, 255, 255, 245))
+    # 주위를 맴도는 작은 기억 입자 2개
+    for idx in range(2):
+        ang = elapsed * 2.6 + idx * pi
+        ox = x + cos(ang) * 18
+        oy = cy + sin(ang) * 14
+        fill(ox - 2, oy - 2, 4, 4, (214, 186, 255, 200))
 
 
 def sdl_error_message() -> str:
@@ -2886,6 +2960,9 @@ def main() -> None:
             if kind == "key":
                 sounds.play("key")
                 effects.burst_key(ex, ey)
+            elif kind == "shard":
+                sounds.play("key")
+                effects.burst_shard(ex, ey)
             elif kind == "key_shift":
                 sounds.play("ui_move")
                 effects.rings.append(ShockRing(ex, ey, 10, 68, 0.45, (255, 214, 108)))
@@ -3372,6 +3449,8 @@ def main() -> None:
                 draw_ghost(sprite, ghost)
             if not run.has_key:
                 draw_key(*tile_center(*run.key_tile), run.elapsed)
+            if not run.has_shard:
+                draw_memory_shard(*tile_center(*run.shard_tile), run.elapsed)
             draw_player_status_effects(run)
             effects.draw_world()
             if shake_x or shake_y:
@@ -3466,7 +3545,7 @@ def main() -> None:
             )
             draw_centered_text(
                 hint_font,
-                "5라운드 클리어     ·     ENTER  시간의 홀로     ·     ESC  메인 메뉴",
+                f"최종 점수 {run.score}점  ·  기억 조각 {run.total_shards}/{len(ROUNDS)}   |   ENTER 시간의 홀로   ·   ESC 메인 메뉴",
                 800, 304, (205, 188, 163),
             )
         update_canvas()
