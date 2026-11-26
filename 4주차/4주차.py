@@ -2840,6 +2840,26 @@ def main() -> None:
         else:
             enter_hub()
 
+    def handle_clock_events() -> None:
+        for kind, ex, ey in clock_run.events:
+            if kind == "step":
+                sounds.play("step")
+                effects.spawn_dust(ex, ey)
+            elif kind == "gear":
+                sounds.play("key")
+                effects.burst_key(ex, ey)
+            elif kind in ("hit", "timeout"):
+                sounds.play("ghost_hit")
+                effects.burst_ghost_hit(ex, ey)
+            elif kind == "next":
+                sounds.play("round_clear")
+                effects.burst_round_clear(ex, ey)
+            elif kind == "clear":
+                sounds.play("stage_clear")
+                effects.burst_round_clear(ex, ey)
+                sounds.play_bgm("hub")
+        clock_run.events.clear()
+
     def handle_mirror_events() -> None:
         for kind, ex, ey in mirror_run.events:
             if kind == "step":
@@ -2914,7 +2934,7 @@ def main() -> None:
                         screen = pause_return_screen
                         pause_menu_open = False
                         sounds.set_paused_duck(False)
-                    elif screen in ("clear", "mirror_clear"):
+                    elif screen in ("clear", "mirror_clear", "clock_clear"):
                         sounds.play("ui_move")
                         screen = "menu"
                         sounds.play_bgm("hub")
@@ -2939,7 +2959,7 @@ def main() -> None:
                     SDLK_RETURN, SDLK_KP_ENTER, SDLK_SPACE
                 ):
                     advance_story()
-                elif screen in ("clear", "mirror_clear") and event.key in (SDLK_RETURN, SDLK_KP_ENTER):
+                elif screen in ("clear", "mirror_clear", "clock_clear") and event.key in (SDLK_RETURN, SDLK_KP_ENTER):
                     sounds.play("ui_confirm")
                     enter_hub()
                 elif screen == "hub" and event.key in (SDLK_RETURN, SDLK_KP_ENTER):
@@ -3247,13 +3267,14 @@ def main() -> None:
         if screen == "clock":
             move_x = sum(KEY_DIRECTIONS[key][0] for key in held_keys)
             move_y = sum(KEY_DIRECTIONS[key][1] for key in held_keys)
-            clock_run.update(move_x, move_y, delta_time)
-            for kind, ex, ey in clock_run.events:
-                if kind == "step":
-                    sounds.play("step")
-                    effects.spawn_dust(ex, ey)
-            clock_run.events.clear()
+            res = clock_run.update(move_x, move_y, delta_time)
+            handle_clock_events()
             effects.update(delta_time)
+            if res != "playing":
+                held_keys.clear()
+            if res == "clear":
+                cleared_rooms.add("clock")
+                screen = "clock_clear"
 
         if screen == "mirror":
             move_x = sum(KEY_DIRECTIONS[key][0] for key in held_keys)
@@ -3303,14 +3324,21 @@ def main() -> None:
         )
 
         show_clock = (
-            screen == "clock"
+            screen in ("clock", "clock_clear")
             or (screen == "pause" and pause_return_screen == "clock")
             or (screen == "settings" and pause_menu_open and pause_return_screen == "clock")
         )
 
         if show_clock:
+            shake_x, shake_y = effects.shake_offset() if screen == "clock" else (0, 0)
+            if shake_x or shake_y:
+                clear_canvas()
+                viewport = pico2d.SDL_Rect(shake_x, shake_y, SCREEN_WIDTH, SCREEN_HEIGHT)
+                pico2d.SDL_RenderSetViewport(pico2d_core.renderer, ctypes.byref(viewport))
             draw_clock_tower(menu_font, hint_font, draw_centered_text, sprite, clock_run)
             effects.draw_world()
+            if shake_x or shake_y:
+                pico2d.SDL_RenderSetViewport(pico2d_core.renderer, None)
             effects.draw_overlay()
 
         if show_mirror:
@@ -3374,6 +3402,28 @@ def main() -> None:
         elif screen == "menu":
             draw_menu(
                 title_font, menu_font, hint_font, selected_menu_item, sprite
+            )
+        elif screen == "clock_clear":
+            fill(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, (10, 12, 20, 210))
+            fill(230, 250, 1140, 400, (24, 20, 18, 242))
+            draw_rectangle(230, 250, 1370, 650, 242, 204, 112, filled=False)
+            draw_rectangle(238, 258, 1362, 642, 124, 104, 62, filled=False)
+            draw_centered_text(hint_font, f"세 번째 기억 조각 복원됨   ({len(cleared_rooms)} / 3)", 800, 604, (248, 212, 122))
+            draw_centered_text(heading_font, "멈춘 시계탑 가동", 800, 544, (239, 209, 158))
+            draw_centered_text(
+                menu_font,
+                "\"멈춰 있던 시계 바늘이 다시 움직이기 시작했다.\"",
+                800, 464, (242, 230, 202),
+            )
+            draw_centered_text(
+                hint_font,
+                "시간의 홀 중앙 시계에 세 번째 보석이 밝혀졌습니다.  로비의 '기억의 일기장'을 확인해 보세요!",
+                800, 396, (238, 214, 162),
+            )
+            draw_centered_text(
+                hint_font,
+                "ENTER  시간의 홀로     ·     ESC  메인 메뉴",
+                800, 304, (205, 188, 163),
             )
         elif screen == "mirror_clear":
             fill(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, (10, 12, 20, 210))
