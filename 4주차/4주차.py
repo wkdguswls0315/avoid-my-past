@@ -68,6 +68,7 @@ _SCRIPT_DIR = str(Path(__file__).resolve().parent)
 if _SCRIPT_DIR not in sys.path:
     sys.path.insert(0, _SCRIPT_DIR)
 
+from clock_tower import ClockTowerRun, draw_clock_tower
 from mirror_room import MirrorHallRun, draw_mirror_hall
 
 
@@ -114,7 +115,7 @@ HUB_SPEED = 210
 HUB_DOORS = (
     ("cellar", "Ⅰ. 지하 저장고", HUB_CELLAR_DOOR_TILE, True),
     ("mirror", "Ⅱ. 거울의 회랑", HUB_MIRROR_DOOR_TILE, True),
-    ("clock", "Ⅲ. 멈춘 시계탑", HUB_CLOCK_DOOR_TILE, False),
+    ("clock", "Ⅲ. 멈춘 시계탑", HUB_CLOCK_DOOR_TILE, True),
 )
 HUB_LAMP_TILES = (
     (3, 2, 300),
@@ -867,25 +868,22 @@ def draw_hub_details() -> None:
     fill(d2x - 42, d2y + 24, 84, 3, (198, 172, 232))
     draw_rectangle(d2x - 34, d2y - 30, d2x + 34, d2y + 26, 186, 164, 220)
 
-    # 3번 문 (우측): 'Ⅲ. 멈춘 시계탑' — 황동 톱니 문과 봉인 띠
-    d3x, d3y = draw_hub_door_frame(HUB_CLOCK_DOOR_TILE[0], (176, 146, 92))
-    fill(d3x - 34, d3y - 30, 68, 64, (36, 32, 30))
-    fill(d3x - 26, d3y - 24, 52, 50, (62, 52, 42))
-    draw_circle(d3x, d3y, 17, 176, 142, 82)
-    draw_circle(d3x, d3y, 9, 136, 106, 62)
+    # 3번 문 (우측): 'Ⅲ. 멈춘 시계탑' — 빛나는 황동 톱니 문 (개방됨)
+    d3x, d3y = draw_hub_door_frame(HUB_CLOCK_DOOR_TILE[0], (192, 158, 96))
+    fill(d3x - 34, d3y - 30, 68, 64, (36, 32, 28))
+    fill(d3x - 26, d3y - 24, 52, 50, (68, 56, 42))
+    draw_circle(d3x, d3y, 17, 212, 174, 102)
+    draw_circle(d3x, d3y, 9, 166, 132, 74)
     for spoke in range(8):
         ang = spoke * pi / 4
         draw_line(
             d3x + cos(ang) * 9, d3y + sin(ang) * 9,
             d3x + cos(ang) * 21, d3y + sin(ang) * 21,
-            188, 154, 92,
+            218, 180, 106,
         )
-    fill(d3x - 42, d3y + 26, 84, 10, (128, 114, 96))
-    draw_line(d3x - 32, d3y - 24, d3x + 32, d3y + 22, 176, 98, 108)
-    draw_line(d3x - 32, d3y + 22, d3x + 32, d3y - 24, 176, 98, 108)
-    draw_circle(d3x, d3y, 8, 44, 34, 46, filled=True)
-    draw_circle(d3x, d3y, 8, 212, 164, 98)
-    draw_rectangle(d3x - 34, d3y - 30, d3x + 34, d3y + 26, 182, 150, 94)
+    fill(d3x - 42, d3y + 26, 84, 10, (144, 126, 98))
+    fill(d3x - 42, d3y + 24, 84, 3, (226, 190, 118))
+    draw_rectangle(d3x - 34, d3y - 30, d3x + 34, d3y + 26, 204, 170, 104)
 
     # 왼쪽 회랑 오브젝트: '기억의 일기장' 나무 독서대와 펼쳐진 책
     dx, dy = tile_center(*HUB_DIARY_TILE)
@@ -2164,12 +2162,22 @@ def draw_hub_gate_effects(
         alpha = int((135 if near_mirror else 85) * sin(pi * rise / 50))
         fill(mx, my, 3, 3, (*c2_inner, alpha))
 
-    # 3번 문 (멈춘 시계탑): 봉인된 은은한 신비 오라
+    # 3번 문 (멈춘 시계탑): 개방된 황금 시계탑 오라
     d3x, d3y = tile_center(*HUB_CLOCK_DOOR_TILE)
     near_clock = target == "clock"
-    draw_circle(d3x, d3y - 4, 28, 224, 176, 98, int((34 if near_clock else 18) + 10 * pulse), filled=True)
+    c3 = (248, 206, 112)
+    c3_inner = (255, 240, 192)
+    a3 = int((46 if near_clock else 26) + 16 * pulse)
+    draw_circle(d3x, d3y - 4, 34, *c3, a3, filled=True)
+    draw_circle(d3x, d3y - 4, 18, *c3_inner, a3 + 12, filled=True)
     if near_clock:
-        fill(d3x - 50, d3y - 43, 100, 4, (224, 176, 98, 150))
+        fill(d3x - 50, d3y - 43, 100, 5, (*c3, 175))
+    for mote in range(4):
+        rise = (elapsed * (15 + mote * 3) + mote * 14) % 50
+        mx = d3x + 20 * sin(elapsed * 2.0 + mote * 1.6)
+        my = d3y - 24 + rise
+        alpha = int((135 if near_clock else 85) * sin(pi * rise / 50))
+        fill(mx, my, 3, 3, (*c3_inner, alpha))
 
     # 왼쪽 회랑 일기장 옆 작은 촛불 깜박임
     diary_x, diary_y = tile_center(*HUB_DIARY_TILE)
@@ -2270,8 +2278,8 @@ def draw_hub(
         bottom_prompt = "ENTER 키를 눌러 'Ⅱ. 거울의 회랑' 입장"
     elif target == "clock":
         gx, gy = tile_center(*HUB_CLOCK_DOOR_TILE)
-        badge_pos = (gx, gy - 104, "ENTER 조사", (222, 182, 108))
-        bottom_prompt = "ENTER 키를 눌러 봉인된 'Ⅲ. 멈춘 시계탑' 살펴보기"
+        badge_pos = (gx, gy - 104, "ENTER 입장", (242, 204, 116))
+        bottom_prompt = "ENTER 키를 눌러 'Ⅲ. 멈춘 시계탑' 입장"
     elif target == "diary":
         badge_pos = (diary_x, diary_y + 42, "ENTER 읽기", (238, 206, 134))
         bottom_prompt = "ENTER 키를 눌러 '기억의 일기장' 펼치기"
@@ -2752,6 +2760,7 @@ def main() -> None:
     cellar = Cellar(props)
     run = CellarRun()
     mirror_run = MirrorHallRun()
+    clock_run = ClockTowerRun()
     sounds = SoundBank(assets / "sounds")
     effects = EffectsManager()
     held_keys: set[int] = set()
@@ -2892,7 +2901,7 @@ def main() -> None:
                             screen = "pause"
                         else:
                             screen = "menu"
-                    elif screen in ("game", "mirror"):
+                    elif screen in ("game", "mirror", "clock"):
                         sounds.play("ui_move")
                         pause_return_screen = screen
                         screen = "pause"
@@ -2953,9 +2962,13 @@ def main() -> None:
                         sounds.play_bgm("hub")
                         held_keys.clear()
                     elif target == "clock":
-                        sounds.play("ui_move")
-                        hub_whisper = "\"거대한 태엽 소리가 굳게 닫힌 문 너머에서 멈춰 있다... (Ⅲ. 멈춘 시계탑 · 준비 중)\""
-                        hub_whisper_until = hub_elapsed + 4.5
+                        sounds.play("ui_confirm")
+                        screen = "clock"
+                        clock_run.reset_all()
+                        effects.clear()
+                        sounds.set_paused_duck(False)
+                        sounds.play_bgm("cellar")
+                        held_keys.clear()
                     elif target == "diary":
                         sounds.play("ui_confirm")
                         screen = "diary"
@@ -2985,6 +2998,12 @@ def main() -> None:
                         if result == "clear":
                             cleared_rooms.add("cellar")
                             screen = "clear"
+                elif screen == "clock" and event.key == SDLK_r:
+                    sounds.play("ui_move")
+                    clock_run.begin_round("시계판 위치를 초기화했습니다.")
+                    held_keys.clear()
+                elif screen == "clock" and event.key in KEY_DIRECTIONS:
+                    held_keys.add(event.key)
                 elif screen == "mirror" and event.key == SDLK_r:
                     sounds.play("ui_move")
                     mirror_run.begin_stage("현재 스테이지를 처음부터 다시 시작합니다.")
@@ -3225,6 +3244,17 @@ def main() -> None:
                 hub_frame = 0
                 last_hub_frame = 0
 
+        if screen == "clock":
+            move_x = sum(KEY_DIRECTIONS[key][0] for key in held_keys)
+            move_y = sum(KEY_DIRECTIONS[key][1] for key in held_keys)
+            clock_run.update(move_x, move_y, delta_time)
+            for kind, ex, ey in clock_run.events:
+                if kind == "step":
+                    sounds.play("step")
+                    effects.spawn_dust(ex, ey)
+            clock_run.events.clear()
+            effects.update(delta_time)
+
         if screen == "mirror":
             move_x = sum(KEY_DIRECTIONS[key][0] for key in held_keys)
             move_y = sum(KEY_DIRECTIONS[key][1] for key in held_keys)
@@ -3271,6 +3301,17 @@ def main() -> None:
             or (screen == "pause" and pause_return_screen == "mirror")
             or (screen == "settings" and pause_menu_open and pause_return_screen == "mirror")
         )
+
+        show_clock = (
+            screen == "clock"
+            or (screen == "pause" and pause_return_screen == "clock")
+            or (screen == "settings" and pause_menu_open and pause_return_screen == "clock")
+        )
+
+        if show_clock:
+            draw_clock_tower(menu_font, hint_font, draw_centered_text, sprite, clock_run)
+            effects.draw_world()
+            effects.draw_overlay()
 
         if show_mirror:
             shake_x, shake_y = effects.shake_offset() if screen == "mirror" else (0, 0)
